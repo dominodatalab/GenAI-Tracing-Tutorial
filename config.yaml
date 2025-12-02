@@ -1,0 +1,215 @@
+name: triageflow
+version: "1.0"
+description: Multi-agent incident triage system
+
+models:
+  openai: "gpt-4o-mini"
+  anthropic: "claude-sonnet-4-20250514"
+
+tools:
+  classifier:
+    - name: lookup_category_definitions
+      description: Get official category definitions and classification criteria
+      parameters:
+        type: object
+        properties: {}
+        required: []
+
+  impact_assessor:
+    - name: lookup_historical_incidents
+      description: Search for similar historical incidents to inform impact assessment
+      parameters:
+        type: object
+        properties:
+          category:
+            type: string
+            description: Incident category
+          subcategory:
+            type: string
+            description: Incident subcategory
+          limit:
+            type: integer
+            description: Max results
+            default: 5
+        required: [category, subcategory]
+    - name: calculate_impact_score
+      description: Calculate normalized impact score (0-10) based on multiple factors
+      parameters:
+        type: object
+        properties:
+          urgency:
+            type: integer
+            description: Urgency level 1-5
+          affected_users:
+            type: integer
+            description: Estimated affected users
+          affected_systems_count:
+            type: integer
+            description: Number of affected systems
+          has_financial_impact:
+            type: boolean
+            description: Whether there is financial impact
+          has_compliance_implications:
+            type: boolean
+            description: Whether there are compliance implications
+        required: [urgency, affected_users, affected_systems_count, has_financial_impact, has_compliance_implications]
+
+  resource_matcher:
+    - name: check_resource_availability
+      description: Check available resources matching required skills
+      parameters:
+        type: object
+        properties:
+          required_skills:
+            type: array
+            items:
+              type: string
+            description: Required skills
+          urgency:
+            type: integer
+            description: Urgency level 1-5
+        required: [required_skills, urgency]
+    - name: get_sla_requirements
+      description: Get SLA requirements based on urgency and category
+      parameters:
+        type: object
+        properties:
+          urgency:
+            type: integer
+            description: Urgency level 1-5
+          category:
+            type: string
+            description: Incident category
+        required: [urgency, category]
+
+  response_drafter:
+    - name: get_communication_templates
+      description: Get communication templates for different audiences
+      parameters:
+        type: object
+        properties:
+          category:
+            type: string
+            description: Incident category
+          urgency:
+            type: integer
+            description: Urgency level 1-5
+        required: [category, urgency]
+    - name: get_stakeholder_list
+      description: Determine which stakeholders need notification
+      parameters:
+        type: object
+        properties:
+          category:
+            type: string
+            description: Incident category
+          impact_score:
+            type: number
+            description: Impact score 0-10
+          blast_radius:
+            type: string
+            description: Blast radius level
+        required: [category, impact_score, blast_radius]
+
+agents:
+  classifier:
+    temperature: 0.3
+    max_tokens: 1000
+    prompt: |
+      You are an incident classification specialist. First, use the lookup_category_definitions tool to get the official category definitions.
+
+      Then analyze the incident and return JSON with:
+      - category: one of [security, operational, performance, data_integrity, compliance, infrastructure, user_access]
+      - subcategory: specific subcategory from the definitions
+      - urgency: 1-5 (5=critical)
+      - confidence: 0.0-1.0
+      - reasoning: brief explanation
+      - affected_domain: department/area affected
+
+      Urgency guidelines:
+      - 5: Active breach, complete outage, data loss in progress
+      - 4: Significant degradation, potential security incident
+      - 3: Moderate impact, workarounds available
+      - 2: Minor impact, single user/system
+      - 1: Informational, minor requests
+
+      Incident: {incident}
+
+      Return only valid JSON after using the tool.
+
+  impact_assessor:
+    temperature: 0.4
+    max_tokens: 1500
+    prompt: |
+      You are an impact assessment specialist. You have access to tools to help assess impact.
+
+      First, use lookup_historical_incidents with the category and subcategory from the classification to find similar past incidents.
+      Then use calculate_impact_score to compute a normalized score based on your assessment.
+
+      Return JSON with:
+      - impact_score: use the calculate_impact_score tool result
+      - affected_users_estimate: integer
+      - affected_systems: list of system names
+      - financial_exposure: estimated $ impact or null
+      - similar_incidents: list the historical incidents found
+      - blast_radius: one of [contained, department, organization, external]
+      - reasoning: brief explanation
+
+      Classification: {classification}
+      Incident: {incident}
+
+      Return only valid JSON after using the tools.
+
+  resource_matcher:
+    temperature: 0.2
+    max_tokens: 1500
+    prompt: |
+      You are a resource allocation specialist. You have access to tools to check availability and SLA requirements.
+
+      First, use check_resource_availability with the required skills based on the incident category.
+      Then use get_sla_requirements to understand the SLA targets.
+
+      Return JSON with:
+      - primary_responder: select the best match from available resources with fields: resource_id, name, role, skills, availability, match_score
+      - backup_responders: list 1-2 additional resources
+      - sla_target_hours: from SLA requirements
+      - sla_met: boolean based on responder availability vs SLA
+      - escalation_path: list of roles/names
+      - reasoning: brief explanation
+
+      Classification: {classification}
+      Impact: {impact}
+
+      Return only valid JSON after using the tools.
+
+  response_drafter:
+    temperature: 0.7
+    max_tokens: 2000
+    prompt: |
+      You are a communications specialist. You have access to tools to get templates and stakeholder information.
+
+      First, use get_stakeholder_list to determine who needs to be notified.
+      Then use get_communication_templates to get appropriate templates for each audience.
+
+      Create communications for each required stakeholder using the templates as guidance.
+
+      Return JSON with:
+      - communications: list of objects with audience, subject, body, urgency_indicator
+      - action_items: list of specific action strings
+      - estimated_resolution_time: string estimate
+      - escalation_required: boolean
+      - completeness_score: 0.0-1.0 self-assessment
+
+      Incident: {incident}
+      Classification: {classification}
+      Impact: {impact}
+      Resources: {resources}
+
+      Return only valid JSON after using the tools.
+
+sla:
+  urgency_5: {response_hours: 1, resolution_hours: 4}
+  urgency_4: {response_hours: 2, resolution_hours: 8}
+  urgency_3: {response_hours: 4, resolution_hours: 24}
+  urgency_2: {response_hours: 8, resolution_hours: 48}
+  urgency_1: {response_hours: 24, resolution_hours: 168}

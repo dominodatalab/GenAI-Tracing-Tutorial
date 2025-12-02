@@ -1,0 +1,11 @@
+ticket_id,description,source,reporter,affected_system,initial_severity
+HLT-2024-001,"Electronic Health Records system unresponsive in Emergency Department. Clinicians unable to access patient histories. Reverting to paper.",user_report,ED Charge Nurse,Epic EHR,5
+HLT-2024-002,"Lab results interface failing to transmit critical values to nursing stations. Delay in abnormal result notifications.",monitoring,,Lab Information System,5
+HLT-2024-003,"Patient portal showing incorrect appointment times after daylight saving time change. Multiple patients arriving at wrong times.",user_report,Patient Services,Patient Portal,3
+HLT-2024-004,"HIPAA audit log showing gaps in access tracking. 6-hour window of unlogged activity on radiology system.",automated_scan,,Radiology PACS,4
+HLT-2024-005,"Medication dispensing cabinets in ICU reporting connectivity issues. Nurses using override codes for urgent medications.",user_report,ICU Pharmacy,Pyxis MedStation,4
+HLT-2024-006,"Telehealth platform video quality degraded. Providers reporting pixelated video and audio dropouts during consultations.",user_report,Telehealth Support,Teladoc Platform,3
+HLT-2024-007,"Billing system rejecting Medicare claims with new 2024 codes. 450 claims pending manual review.",monitoring,,Claims Processing System,3
+HLT-2024-008,"Surgical scheduling system double-booked OR-3 for tomorrow. Two cardiac procedures scheduled at same time.",user_report,Surgery Coordinator,Surgical Scheduling,4
+HLT-2024-009,"Blood bank inventory system not syncing with regional donation centers. Current stock levels may be inaccurate.",monitoring,,Blood Bank Management,4
+HLT-2024-010,"Ransomware indicators detected on imaging workstation. Machine isolated. Potential lateral movement being investigated.",automated_scan,,Radiology Workstation,5

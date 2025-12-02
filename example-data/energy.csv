@@ -1,0 +1,11 @@
+ticket_id,description,source,reporter,affected_system,initial_severity
+NRG-2024-001,"SCADA system lost communication with 12 substations in northeast grid. Operators flying blind on load balancing.",monitoring,,SCADA Control System,5
+NRG-2024-002,"Wind farm turbine management system showing erratic readings. 23 turbines reporting impossible wind speeds.",monitoring,,Turbine SCADA,4
+NRG-2024-003,"Natural gas pipeline pressure sensors offline along 40-mile segment. Manual readings required until restored.",monitoring,,Pipeline Monitoring,5
+NRG-2024-004,"Customer billing system calculated negative charges for 12,000 accounts. Bills already sent to print vendor.",monitoring,,Billing System,4
+NRG-2024-005,"Grid frequency deviation alert triggered. Automatic load shedding may activate if not stabilized within 10 minutes.",monitoring,,Energy Management System,5
+NRG-2024-006,"Smart meter data collection failed for overnight batch. 2.1 million meters missing consumption data.",monitoring,,Meter Data Management,3
+NRG-2024-007,"Outage management system map display showing incorrect restoration times. Customer-facing app affected.",user_report,Call Center,Outage Management,3
+NRG-2024-008,"Solar farm inverters firmware update failed mid-deployment. 30% of inverters in safe mode producing no power.",monitoring,,Solar Farm Controller,4
+NRG-2024-009,"Trading desk lost access to ISO real-time pricing data. Unable to optimize dispatch for economic signals.",user_report,Energy Trading,Market Interface,4
+NRG-2024-010,"Physical security system at nuclear facility reporting camera failures in restricted zone. NRC notification may be required.",automated_scan,,Physical Security System,5

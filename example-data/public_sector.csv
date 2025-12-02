@@ -1,0 +1,11 @@
+ticket_id,description,source,reporter,affected_system,initial_severity
+GOV-2024-001,"911 dispatch system experiencing 30-second delays in call routing. Emergency response times potentially affected.",monitoring,,CAD Dispatch System,5
+GOV-2024-002,"DMV appointment scheduling portal crashed under load. 50,000 users attempting to book Real ID appointments.",user_report,DMV Director,Appointment Portal,4
+GOV-2024-003,"Property tax payment website rejecting credit cards. Payment deadline is tomorrow. Citizens calling in frustrated.",user_report,Tax Office,Payment Portal,4
+GOV-2024-004,"Voter registration database sync failed between state and county systems. 15 counties showing outdated rolls.",monitoring,,Voter Registration System,4
+GOV-2024-005,"Court case management system search function returning incomplete results. Attorneys cannot find recent filings.",user_report,Court Clerk,Case Management System,3
+GOV-2024-006,"Public transit real-time arrival signs displaying wrong information citywide. Bus tracking GPS feed corrupted.",user_report,Transit Operations,Passenger Information System,3
+GOV-2024-007,"Unemployment claims portal unable to process new applications. Error occurs at identity verification step.",user_report,Call Center,Benefits Portal,4
+GOV-2024-008,"Building permit system allowing duplicate submissions. Same permit approved and billed twice to applicants.",user_report,Permits Office,Permit Management,3
+GOV-2024-009,"Police body camera upload system backlogged. 72-hour retention policy at risk for oldest footage.",monitoring,,Evidence Management,4
+GOV-2024-010,"State data center cooling failure in Zone B. Servers throttling to prevent overheating. Multiple agencies affected.",monitoring,,Data Center Infrastructure,5

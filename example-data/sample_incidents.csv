@@ -1,0 +1,9 @@
+ticket_id,description,source,reporter,affected_system,initial_severity
+INC-2024-2001,"Multiple users reporting inability to access the trading platform. Error message shows 'Service Unavailable'. Started approximately 15 minutes ago. Affecting the entire APAC region.",user_report,Help Desk,Trading Platform,4
+INC-2024-2002,"Automated security scan detected unusual outbound traffic patterns from server DB-PROD-03. Traffic destination is an unrecognized external IP. No known maintenance or data sync scheduled.",automated_scan,,DB-PROD-03,5
+INC-2024-2003,"Monthly compliance report generation failed. Error in data aggregation step. Report is due to regulators in 72 hours.",monitoring,,Compliance Reporting System,3
+INC-2024-2004,"User john.smith@company.com unable to reset password via self-service portal. MFA token not being accepted. User has critical presentation in 2 hours.",user_report,john.smith@company.com,Identity Management,2
+INC-2024-2005,"Patient data synchronization between EMR and billing system has stopped. Last successful sync was 6 hours ago. Affecting patient discharge processing.",monitoring,,EMR-Billing Integration,4
+INC-2024-2006,"SCADA monitoring system showing intermittent connectivity losses to remote substations. 3 substations affected in the northeast grid region.",monitoring,,SCADA Control System,5
+INC-2024-2007,"Citizen services portal experiencing slow response times. Page load times exceeding 30 seconds. Multiple complaints received via social media.",user_report,Social Media Team,Citizen Portal,3
+INC-2024-2008,"Database replication lag detected between primary and secondary data centers. Current lag is 45 minutes and increasing. May affect disaster recovery readiness.",monitoring,,Database Cluster,4

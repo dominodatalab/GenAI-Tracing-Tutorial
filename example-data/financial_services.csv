@@ -1,0 +1,11 @@
+ticket_id,description,source,reporter,affected_system,initial_severity
+FIN-2024-001,"Trading platform experiencing intermittent order failures. Approximately 15% of market orders failing with timeout errors. Affecting equities desk.",monitoring,,Trading Platform,5
+FIN-2024-002,"Suspicious login attempts detected on wire transfer system. 47 failed attempts from multiple IPs targeting high-value accounts.",automated_scan,,Wire Transfer System,5
+FIN-2024-003,"End-of-day reconciliation report shows $2.3M discrepancy between trading ledger and settlement system.",monitoring,,Settlement System,4
+FIN-2024-004,"Customer mobile app crash rate spiked to 12% after latest deployment. Users unable to view account balances.",user_report,App Support Team,Mobile Banking App,3
+FIN-2024-005,"SWIFT message queue backlog growing. Currently 340 pending messages with oldest at 2 hours. International transfers delayed.",monitoring,,SWIFT Gateway,4
+FIN-2024-006,"Fraud detection system generating excessive false positives. 300% increase in blocked legitimate transactions today.",user_report,Fraud Ops Team,Fraud Detection Engine,3
+FIN-2024-007,"Market data feed from Bloomberg showing stale prices for EMEA equities. Last update was 45 minutes ago.",monitoring,,Market Data Feed,4
+FIN-2024-008,"ATM network in midwest region offline. 127 ATMs unreachable. Vendor reports fiber cut during construction.",user_report,ATM Operations,ATM Network,4
+FIN-2024-009,"Regulatory report CCAR-2024-Q4 generation failed during stress test calculations. Submission deadline in 48 hours.",monitoring,,Risk Analytics Platform,3
+FIN-2024-010,"Customer PII potentially exposed via misconfigured API endpoint. Security team investigating scope of exposure.",automated_scan,,Customer API Gateway,5
