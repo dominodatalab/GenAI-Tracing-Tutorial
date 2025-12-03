@@ -34,11 +34,6 @@ Each agent uses dedicated tools to query historical data, check resource availab
    - Go to **Account Settings** → **User Environment Variables**
    - Add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
 
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
 ## Usage
 
 Open `tracing-tutorial.ipynb` and run the cells sequentially:
