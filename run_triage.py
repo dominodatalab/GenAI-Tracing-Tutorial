@@ -52,6 +52,12 @@ def parse_args():
         default="financial_services",
         help="Industry vertical for sample incidents (default: financial_services)"
     )
+    parser.add_argument(
+        "-n", "--num-tickets",
+        type=int,
+        default=0,
+        help="Number of tickets to process (default: all in CSV)"
+    )
     return parser.parse_args()
 
 
@@ -243,7 +249,9 @@ def main():
     data_path = os.path.join(script_dir, f"example-data/{args.vertical}.csv")
     df = pd.read_csv(data_path)
     incidents = [row_to_incident(row) for _, row in df.iterrows()]
-    print(f"Loaded {len(incidents)} incidents from {args.vertical}")
+    if args.num_tickets > 0:
+        incidents = incidents[:args.num_tickets]
+    print(f"Processing {len(incidents)} incidents from {args.vertical}")
 
     # Set up experiment and run naming
     username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
