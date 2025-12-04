@@ -247,8 +247,9 @@ def main():
 
     # Set up experiment and run naming
     username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
+    project_name = os.environ.get("DOMINO_PROJECT_NAME", "default")
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    experiment_name = f"tracing-{username}"
+    experiment_name = f"tracing-{project_name}-{username}"
     run_name = f"{args.vertical}-{username}-{timestamp}"
 
     print(f"\nExperiment: {experiment_name}")

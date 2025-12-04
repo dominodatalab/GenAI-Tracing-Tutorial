@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 from enum import Enum
@@ -74,6 +74,11 @@ class Communication(BaseModel):
     subject: str
     body: str
     urgency_indicator: str
+
+    @field_validator("urgency_indicator", mode="before")
+    @classmethod
+    def coerce_urgency_to_str(cls, v):
+        return str(v) if v is not None else v
 
 
 class ResponsePlan(BaseModel):
