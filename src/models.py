@@ -68,6 +68,20 @@ class ResourceAssignment(BaseModel):
     escalation_path: list[str]
     reasoning: str
 
+    @field_validator("sla_target_hours", mode="before")
+    @classmethod
+    def coerce_sla_to_float(cls, v):
+        if isinstance(v, dict):
+            # Extract first numeric value from dict (e.g., response_hours)
+            for key in ["response_hours", "target_hours", "hours"]:
+                if key in v and isinstance(v[key], (int, float)):
+                    return float(v[key])
+            # Fallback: use first numeric value found
+            for val in v.values():
+                if isinstance(val, (int, float)):
+                    return float(val)
+        return v
+
 
 class Communication(BaseModel):
     audience: str
