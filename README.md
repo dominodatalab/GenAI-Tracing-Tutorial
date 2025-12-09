@@ -43,16 +43,42 @@ Open `tracing-tutorial.ipynb` and run the cells sequentially:
 
 View traces in the Domino Experiment Manager.
 
+## Configuration App
+
+A Streamlit application for configuring and launching triage jobs without code.
+
+**To publish the app:**
+1. Go to **Deployments > App** in Domino
+2. Select `app/app.sh` as the launch script
+3. Click **Publish Domino App**
+
+**Features:**
+- Configure agent prompts, temperature, and token limits
+- View and edit tool configurations
+- Adjust LLM judge settings and evaluation thresholds
+- Select industry vertical and sample tickets
+- View pipeline diagram showing agent/tool flow
+- Launch jobs and track history
+
+Configurations are saved to the project dataset with timestamps for reproducibility.
+
 ## Project Structure
 
 ```
 ├── tracing-tutorial.ipynb  # Main notebook
 ├── config.yaml             # Prompts, tool schemas, model configs
+├── run_triage.py           # CLI script for running triage
 ├── src/
 │   ├── models.py           # Pydantic data models
 │   ├── agents.py           # Four triage agents
 │   ├── tools.py            # Agent tool functions
 │   └── judges.py           # LLM judge evaluators
+├── app/
+│   ├── app.sh              # Domino app launch script
+│   ├── main.py             # Streamlit app entry point
+│   ├── run_triage_app.py   # App-launched triage script
+│   ├── pages/              # Streamlit pages
+│   └── utils/              # Config and Domino client utilities
 └── example-data/
     ├── financial_services.csv
     ├── healthcare.csv
