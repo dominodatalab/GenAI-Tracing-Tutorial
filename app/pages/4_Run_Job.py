@@ -64,10 +64,9 @@ def init_page_state():
     if "custom_tickets" not in st.session_state:
         st.session_state.custom_tickets = []
 
-    # Initialize Domino host URL - try to detect from environment
+    # Initialize Domino host URL - default to blank
     if "domino_host" not in st.session_state:
-        detected_host = get_domino_host()
-        st.session_state.domino_host = detected_host if detected_host else ""
+        st.session_state.domino_host = ""
 
 
 def render_ticket_table(tickets: list):
@@ -137,6 +136,131 @@ def render_config_summary():
         st.code(config_to_yaml_string(config), language="yaml")
 
 
+def render_pipeline_diagram():
+    """Render a diagram showing the pipeline flow based on current configuration."""
+    config = st.session_state.config
+    provider = st.session_state.provider
+    model = config.get("models", {}).get(provider, "N/A")
+    agents = config.get("agents", {})
+    tools = config.get("tools", {})
+    judge_config = st.session_state.get("judge_config", {})
+
+    st.markdown("## Pipeline Overview")
+    st.markdown("This diagram shows how your configured agents, tools, and judges will process each ticket.")
+
+    # Get agent configurations
+    classifier = agents.get("classifier", {})
+    impact = agents.get("impact_assessor", {})
+    resource = agents.get("resource_matcher", {})
+    response = agents.get("response_drafter", {})
+
+    # Get tool names
+    classifier_tools = [t.get("name", "") for t in tools.get("classifier", [])]
+    impact_tools = [t.get("name", "") for t in tools.get("impact_assessor", [])]
+    resource_tools = [t.get("name", "") for t in tools.get("resource_matcher", [])]
+    response_tools = [t.get("name", "") for t in tools.get("response_drafter", [])]
+
+    # Get judge configurations
+    class_judge = judge_config.get("classification_judge", {})
+    resp_judge = judge_config.get("response_judge", {})
+    triage_judge = judge_config.get("triage_judge", {})
+
+    # Build the diagram dynamically to avoid truncation
+    diagram_lines = [
+        "```",
+        "                              TRIAGEFLOW PIPELINE",
+        "┌─────────────────────────────────────────────────────────────────────────────────┐",
+        "│                                                                                 │",
+        "│   ┌─────────────┐                                                               │",
+        "│   │   TICKET    │                                                               │",
+        "│   │   INPUT     │                                                               │",
+        "│   └──────┬──────┘                                                               │",
+        "│          │                                                                      │",
+        "│          v                                                                      │",
+        "│   ┌─────────────────────────────────────────────────────────────────────────┐   │",
+        "│   │  AGENT 1: CLASSIFIER                                                    │   │",
+        f"│   │    Model: {model}   │   │",
+        f"│   │    Temperature: {classifier.get('temperature', 0.3)}    Max Tokens: {classifier.get('max_tokens', 1000)}                                │   │",
+        f"│   │    Tools: {', '.join(classifier_tools) if classifier_tools else 'None'}   │   │",
+        "│   └──────┬──────────────────────────────────────────────────────────────────┘   │",
+        "│          │  Output: Classification (category, urgency, confidence)              │",
+        "│          v                                                                      │",
+        "│   ┌─────────────────────────────────────────────────────────────────────────┐   │",
+        "│   │  AGENT 2: IMPACT ASSESSOR                                               │   │",
+        f"│   │    Model: {model}   │   │",
+        f"│   │    Temperature: {impact.get('temperature', 0.4)}    Max Tokens: {impact.get('max_tokens', 1500)}                                │   │",
+        f"│   │    Tools: {', '.join(impact_tools) if impact_tools else 'None'}   │   │",
+        "│   └──────┬──────────────────────────────────────────────────────────────────┘   │",
+        "│          │  Output: Impact Assessment (score, blast_radius, affected_users)     │",
+        "│          v                                                                      │",
+        "│   ┌─────────────────────────────────────────────────────────────────────────┐   │",
+        "│   │  AGENT 3: RESOURCE MATCHER                                              │   │",
+        f"│   │    Model: {model}   │   │",
+        f"│   │    Temperature: {resource.get('temperature', 0.2)}    Max Tokens: {resource.get('max_tokens', 1500)}                                │   │",
+        f"│   │    Tools: {', '.join(resource_tools) if resource_tools else 'None'}   │   │",
+        "│   └──────┬──────────────────────────────────────────────────────────────────┘   │",
+        "│          │  Output: Resource Assignment (responder, SLA, escalation_path)       │",
+        "│          v                                                                      │",
+        "│   ┌─────────────────────────────────────────────────────────────────────────┐   │",
+        "│   │  AGENT 4: RESPONSE DRAFTER                                              │   │",
+        f"│   │    Model: {model}   │   │",
+        f"│   │    Temperature: {response.get('temperature', 0.7)}    Max Tokens: {response.get('max_tokens', 2000)}                                │   │",
+        f"│   │    Tools: {', '.join(response_tools) if response_tools else 'None'}   │   │",
+        "│   └──────┬──────────────────────────────────────────────────────────────────┘   │",
+        "│          │  Output: Response Plan (communications, action_items)                │",
+        "│          v                                                                      │",
+        "│   ┌─────────────────────────────────────────────────────────────────────────┐   │",
+        "│   │  EVALUATION JUDGES                                                      │   │",
+        f"│   │    Classification Judge  (temp: {class_judge.get('temperature', 0.1)}, max_tokens: {class_judge.get('max_tokens', 200)})                    │   │",
+        f"│   │    Response Judge        (temp: {resp_judge.get('temperature', 0.1)}, max_tokens: {resp_judge.get('max_tokens', 200)})                    │   │",
+        f"│   │    Triage Judge          (temp: {triage_judge.get('temperature', 0.1)}, max_tokens: {triage_judge.get('max_tokens', 200)})                    │   │",
+        "│   └──────┬──────────────────────────────────────────────────────────────────┘   │",
+        "│          │  Output: Quality Scores (1-5 each)                                   │",
+        "│          v                                                                      │",
+        "│   ┌─────────────┐                                                               │",
+        "│   │   TRIAGE    │                                                               │",
+        "│   │   RESULT    │                                                               │",
+        "│   └─────────────┘                                                               │",
+        "│                                                                                 │",
+        "└─────────────────────────────────────────────────────────────────────────────────┘",
+        "```",
+    ]
+
+    st.code("\n".join(diagram_lines[1:-1]), language=None)
+
+    # Add a summary table below
+    with st.expander("Pipeline Configuration Details", expanded=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Agents**")
+            agent_data = [
+                {"Agent": "Classifier", "Temp": classifier.get("temperature", 0.3), "Tokens": classifier.get("max_tokens", 1000), "Tools": len(classifier_tools)},
+                {"Agent": "Impact Assessor", "Temp": impact.get("temperature", 0.4), "Tokens": impact.get("max_tokens", 1500), "Tools": len(impact_tools)},
+                {"Agent": "Resource Matcher", "Temp": resource.get("temperature", 0.2), "Tokens": resource.get("max_tokens", 1500), "Tools": len(resource_tools)},
+                {"Agent": "Response Drafter", "Temp": response.get("temperature", 0.7), "Tokens": response.get("max_tokens", 2000), "Tools": len(response_tools)},
+            ]
+            st.dataframe(agent_data, use_container_width=True, hide_index=True)
+
+        with col2:
+            st.markdown("**Judges**")
+            judge_data = [
+                {"Judge": "Classification", "Temp": class_judge.get("temperature", 0.1), "Tokens": class_judge.get("max_tokens", 200)},
+                {"Judge": "Response", "Temp": resp_judge.get("temperature", 0.1), "Tokens": resp_judge.get("max_tokens", 200)},
+                {"Judge": "Triage", "Temp": triage_judge.get("temperature", 0.1), "Tokens": triage_judge.get("max_tokens", 200)},
+            ]
+            st.dataframe(judge_data, use_container_width=True, hide_index=True)
+
+        st.markdown("**All Tools**")
+        all_tools = []
+        for agent_name, tool_list in [("Classifier", classifier_tools), ("Impact Assessor", impact_tools),
+                                       ("Resource Matcher", resource_tools), ("Response Drafter", response_tools)]:
+            for tool in tool_list:
+                all_tools.append({"Agent": agent_name, "Tool": tool})
+        if all_tools:
+            st.dataframe(all_tools, use_container_width=True, hide_index=True)
+
+
 def render_job_history():
     """Render the job history table with clickable job links."""
     history = load_job_history()
@@ -189,6 +313,8 @@ def render_job_history():
                 if row.get("job_link"):
                     job_id_short = row.get("job_id", "")[:12] + "..." if row.get("job_id") else "N/A"
                     st.markdown(f"- [{job_id_short}]({row['job_link']}) - {row.get('vertical', '')} ({row.get('timestamp', '')})")
+    elif not domino_host:
+        st.caption("Configure the Domino URL in settings above to get clickable job links.")
 
 
 def main():
@@ -312,8 +438,12 @@ def main():
 
     st.divider()
 
+    # Pipeline Diagram
+    render_pipeline_diagram()
+
+    st.divider()
+
     # Configuration Summary
-    st.markdown("## Configuration Summary")
     render_config_summary()
 
     st.divider()
@@ -321,7 +451,7 @@ def main():
     # Domino Settings Section
     st.markdown("## Domino Settings")
 
-    with st.expander("Configure Domino URL", expanded=not st.session_state.domino_host):
+    with st.expander("Configure Domino URL (Optional)", expanded=False):
         st.markdown("""
         Enter your Domino instance URL to enable direct links to submitted jobs.
         This should be the base URL of your Domino deployment (e.g., `https://se-demo.domino.tech`).
@@ -348,8 +478,6 @@ def main():
             project_info = get_project_info()
             example_url = f"{domino_host}/jobs/{project_info['owner']}/{project_info['name']}/[job_id]"
             st.caption(f"Job URLs will be formatted as: {example_url}")
-        else:
-            st.warning("No Domino URL configured. Job links will not be available.")
 
     st.divider()
 
@@ -431,7 +559,7 @@ def main():
                         if job_url:
                             st.markdown(f"- **View in Domino:** [{job_url}]({job_url})")
                 else:
-                    st.info("Configure the Domino URL above to get direct links to jobs.")
+                    st.caption("Configure the Domino URL in settings above to get direct links to jobs.")
 
             except Exception as e:
                 st.error(f"Failed to launch job: {str(e)}")
@@ -457,6 +585,8 @@ def main():
             job_url = build_job_url(job_id, st.session_state.domino_host)
         if job_url:
             st.markdown(f"[View Job in Domino]({job_url})")
+        elif job_id:
+            st.caption("Configure the Domino URL in settings above to get a direct link.")
 
     st.divider()
 

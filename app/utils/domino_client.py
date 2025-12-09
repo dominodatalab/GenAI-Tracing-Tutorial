@@ -58,7 +58,7 @@ def start_triage_job(
         title = f"TriageFlow-{vertical}-{timestamp}"
 
     command = (
-        f"python /mnt/code/run_triage_app.py "
+        f"python /mnt/code/app/run_triage_app.py "
         f"--config-path {config_path} "
         f"--provider {provider} "
         f"--vertical {vertical} "
