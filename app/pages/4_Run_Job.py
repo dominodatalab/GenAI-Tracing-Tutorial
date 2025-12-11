@@ -27,7 +27,9 @@ from utils.domino_client import (
     create_job_history_entry,
     get_project_info,
     get_domino_host,
-    build_job_url
+    build_job_url,
+    get_job_logs,
+    parse_triage_results
 )
 
 st.set_page_config(
@@ -261,6 +263,141 @@ def render_pipeline_diagram():
             st.dataframe(all_tools, use_container_width=True, hide_index=True)
 
 
+def render_job_results(job_id: str, job_info: dict):
+    """Render the results for a selected job."""
+    st.markdown(f"### Results for Job: `{job_id[:12]}...`")
+
+    # Show job metadata
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Vertical", job_info.get("vertical", "N/A").replace("_", " ").title())
+    with col2:
+        st.metric("Provider", job_info.get("provider", "N/A").title())
+    with col3:
+        st.metric("Tickets", job_info.get("num_tickets", "All") or "All")
+    with col4:
+        st.metric("Status", job_info.get("status", "N/A").title())
+
+    # Fetch job logs
+    with st.spinner("Fetching job logs..."):
+        stdout = get_job_logs(job_id, "stdout")
+
+    if stdout is None:
+        st.warning("Job logs are not available yet. The job may still be running or the logs have not been generated.")
+        return
+
+    # Parse the results
+    parsed = parse_triage_results(stdout)
+
+    # Show job header info
+    if parsed["header"]:
+        with st.expander("Job Configuration", expanded=False):
+            header = parsed["header"]
+            cols = st.columns(3)
+            with cols[0]:
+                if "model" in header:
+                    st.markdown(f"**Model:** {header['model']}")
+                if "experiment" in header:
+                    st.markdown(f"**Experiment:** {header['experiment']}")
+            with cols[1]:
+                if "run" in header:
+                    st.markdown(f"**Run:** {header['run']}")
+                if "num_incidents" in header:
+                    st.markdown(f"**Incidents Processed:** {header['num_incidents']}")
+            with cols[2]:
+                if parsed["evaluations_added"]:
+                    st.markdown(f"**Evaluations Added:** {parsed['evaluations_added']}")
+
+    # Show results summary table
+    if parsed["summary_table"]:
+        st.markdown("#### Triage Results Summary")
+
+        # Create a nice DataFrame display
+        summary_df = pd.DataFrame(parsed["summary_table"])
+
+        # Style the dataframe
+        st.dataframe(
+            summary_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ticket": st.column_config.TextColumn("Ticket ID", width="medium"),
+                "category": st.column_config.TextColumn("Category", width="medium"),
+                "urgency": st.column_config.NumberColumn(
+                    "Urgency",
+                    width="small",
+                    help="1 (low) - 5 (critical)"
+                ),
+                "impact": st.column_config.NumberColumn(
+                    "Impact Score",
+                    width="small",
+                    format="%.1f",
+                    help="0 (minimal) - 10 (severe)"
+                ),
+                "responder": st.column_config.TextColumn("Assigned Responder", width="medium"),
+                "sla_met": st.column_config.CheckboxColumn("SLA Met", width="small")
+            }
+        )
+
+        # Show summary statistics
+        if len(summary_df) > 1:
+            st.markdown("##### Summary Statistics")
+            stats_col1, stats_col2, stats_col3, stats_col4 = st.columns(4)
+            with stats_col1:
+                avg_urgency = summary_df["urgency"].mean() if "urgency" in summary_df else 0
+                st.metric("Avg Urgency", f"{avg_urgency:.1f}")
+            with stats_col2:
+                avg_impact = summary_df["impact"].mean() if "impact" in summary_df else 0
+                st.metric("Avg Impact", f"{avg_impact:.1f}")
+            with stats_col3:
+                high_urgency = len(summary_df[summary_df["urgency"] >= 4]) if "urgency" in summary_df else 0
+                st.metric("High Urgency (4+)", high_urgency)
+            with stats_col4:
+                sla_met_pct = (summary_df["sla_met"].sum() / len(summary_df) * 100) if "sla_met" in summary_df else 0
+                st.metric("SLA Met %", f"{sla_met_pct:.0f}%")
+
+    # Show sample communication
+    if parsed["sample_communication"]:
+        st.markdown("#### Sample Communication")
+
+        audiences = parsed["sample_communication"].get("audiences", [])
+        if audiences:
+            tabs = st.tabs([aud["audience"] for aud in audiences])
+            for tab, aud in zip(tabs, audiences):
+                with tab:
+                    content = aud["content"]
+                    # Extract subject if present
+                    lines = content.split("\n")
+                    subject = None
+                    body_lines = []
+                    for line in lines:
+                        if line.startswith("Subject:"):
+                            subject = line.replace("Subject:", "").strip()
+                        else:
+                            body_lines.append(line)
+
+                    if subject:
+                        st.markdown(f"**Subject:** {subject}")
+                    st.text_area(
+                        "Message Body",
+                        value="\n".join(body_lines).strip(),
+                        height=200,
+                        disabled=True,
+                        key=f"comm_{aud['audience']}"
+                    )
+        else:
+            st.text_area(
+                "Communication",
+                value=parsed["sample_communication"].get("raw", ""),
+                height=200,
+                disabled=True
+            )
+
+    # Raw logs option
+    with st.expander("View Raw Logs", expanded=False):
+        st.code(stdout, language=None)
+
+
 def render_job_history():
     """Render the job history table with clickable job links."""
     history = load_job_history()
@@ -268,6 +405,10 @@ def render_job_history():
     if not history:
         st.info("No jobs have been submitted yet.")
         return
+
+    # Initialize selected job in session state
+    if "selected_job_id" not in st.session_state:
+        st.session_state.selected_job_id = None
 
     # Create DataFrame
     df = pd.DataFrame(history)
@@ -287,34 +428,84 @@ def render_job_history():
             axis=1
         )
 
-    # Select columns to display
-    display_cols = ["timestamp", "job_id", "vertical", "num_tickets", "provider", "status", "user"]
-    display_cols = [c for c in display_cols if c in df.columns]
+    # Create clickable job selection
+    st.markdown("**Select a job to view results:**")
 
-    st.dataframe(
-        df[display_cols].head(20),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "timestamp": st.column_config.TextColumn("Submitted", width="medium"),
-            "job_id": st.column_config.TextColumn("Job ID", width="medium"),
-            "vertical": st.column_config.TextColumn("Vertical", width="small"),
-            "num_tickets": st.column_config.NumberColumn("Tickets", width="small"),
-            "provider": st.column_config.TextColumn("Provider", width="small"),
-            "status": st.column_config.TextColumn("Status", width="small"),
-            "user": st.column_config.TextColumn("User", width="small")
-        }
-    )
+    # Display jobs as clickable buttons in a grid
+    jobs_to_display = df.head(20).to_dict("records")
 
-    # Show clickable links below the table if host is configured
-    if domino_host and "job_link" in df.columns:
-        with st.expander("Job Links", expanded=False):
-            for _, row in df.head(10).iterrows():
-                if row.get("job_link"):
-                    job_id_short = row.get("job_id", "")[:12] + "..." if row.get("job_id") else "N/A"
-                    st.markdown(f"- [{job_id_short}]({row['job_link']}) - {row.get('vertical', '')} ({row.get('timestamp', '')})")
-    elif not domino_host:
-        st.caption("Configure the Domino URL in settings above to get clickable job links.")
+    for i, job in enumerate(jobs_to_display):
+        job_id = job.get("job_id", "")
+        if not job_id:
+            continue
+
+        job_id_short = job_id[:12] + "..." if len(job_id) > 12 else job_id
+        vertical_display = job.get("vertical", "").replace("_", " ").title()
+        timestamp = job.get("timestamp", "")
+        status = job.get("status", "unknown")
+
+        # Create a row for each job
+        col1, col2, col3, col4, col5 = st.columns([2, 2, 1, 1, 1])
+
+        with col1:
+            # Make job ID clickable
+            if st.button(
+                f"{job_id_short}",
+                key=f"job_btn_{i}",
+                use_container_width=True,
+                type="secondary" if st.session_state.selected_job_id != job_id else "primary"
+            ):
+                st.session_state.selected_job_id = job_id
+                st.rerun()
+
+        with col2:
+            st.caption(timestamp)
+
+        with col3:
+            st.caption(vertical_display)
+
+        with col4:
+            st.caption(job.get("provider", "").title())
+
+        with col5:
+            status_emoji = {
+                "submitted": "🔵",
+                "running": "🟡",
+                "completed": "🟢",
+                "failed": "🔴",
+                "unknown": "⚪"
+            }.get(status, "⚪")
+            st.caption(f"{status_emoji} {status.title()}")
+
+    # Show external links if host is configured
+    if domino_host:
+        with st.expander("External Job Links", expanded=False):
+            for job in jobs_to_display[:10]:
+                job_id = job.get("job_id", "")
+                if job_id:
+                    job_url = build_job_url(job_id, domino_host)
+                    if job_url:
+                        job_id_short = job_id[:12] + "..."
+                        st.markdown(f"- [{job_id_short}]({job_url}) - {job.get('vertical', '')} ({job.get('timestamp', '')})")
+    else:
+        st.caption("Configure the Domino URL in settings above to get external job links.")
+
+    # Show results for selected job
+    if st.session_state.selected_job_id:
+        st.divider()
+
+        # Find the job info
+        selected_job_info = next(
+            (job for job in jobs_to_display if job.get("job_id") == st.session_state.selected_job_id),
+            {}
+        )
+
+        # Add a close button
+        if st.button("Close Results", type="secondary"):
+            st.session_state.selected_job_id = None
+            st.rerun()
+
+        render_job_results(st.session_state.selected_job_id, selected_job_info)
 
 
 def main():

@@ -145,6 +145,182 @@ def build_job_url(job_id: str, domino_host: str = None) -> str:
     return f"{domino_host}/jobs/{project_info['owner']}/{project_info['name']}/{job_id}"
 
 
+def get_job_logs(job_id: str, log_type: str = "stdout") -> Optional[str]:
+    """
+    Retrieve logs for a completed job.
+
+    Args:
+        job_id: The Domino job ID.
+        log_type: Type of log to retrieve ('stdout' or 'stderr').
+
+    Returns:
+        Log content as a string, or None if unavailable.
+    """
+    try:
+        domino = get_domino_client()
+        # Use the runs_stdout method from python-domino SDK
+        if log_type == "stdout":
+            logs = domino.runs_stdout(job_id)
+        else:
+            logs = domino.runs_stderr(job_id)
+        return logs
+    except Exception as e:
+        # Return None if logs aren't available yet or job doesn't exist
+        return None
+
+
+def parse_triage_results(stdout: str) -> Dict[str, Any]:
+    """
+    Parse the stdout from a triage job to extract structured results.
+
+    Args:
+        stdout: The raw stdout content from the job.
+
+    Returns:
+        Dictionary containing parsed results with keys:
+        - header: Job header information
+        - summary_table: List of dicts with ticket results
+        - sample_communication: Sample communication details
+        - status: Overall job status
+    """
+    result = {
+        "header": {},
+        "summary_table": [],
+        "sample_communication": None,
+        "evaluations_added": 0,
+        "status": "unknown",
+        "raw": stdout
+    }
+
+    if not stdout:
+        return result
+
+    lines = stdout.strip().split("\n")
+
+    # Parse header section
+    for line in lines:
+        if line.startswith("Config Path:"):
+            result["header"]["config_path"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Provider:"):
+            result["header"]["provider"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Vertical:"):
+            result["header"]["vertical"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Model:"):
+            result["header"]["model"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Processing") and "incidents from" in line:
+            parts = line.split()
+            try:
+                result["header"]["num_incidents"] = int(parts[1])
+            except (ValueError, IndexError):
+                pass
+        elif line.startswith("Experiment:"):
+            result["header"]["experiment"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Run:"):
+            result["header"]["run"] = line.split(":", 1)[1].strip()
+
+    # Parse results summary table
+    in_summary = False
+    summary_lines = []
+    for i, line in enumerate(lines):
+        if "RESULTS SUMMARY" in line:
+            in_summary = True
+            continue
+        if in_summary:
+            if line.startswith("="):
+                if summary_lines:  # End of summary
+                    break
+                continue
+            if line.strip():
+                summary_lines.append(line)
+
+    # Parse summary table (header + data rows)
+    if len(summary_lines) >= 2:
+        # First line is header
+        headers = summary_lines[0].split()
+        for data_line in summary_lines[1:]:
+            # Handle the data - columns are: Ticket, Category, Urgency, Impact, Responder, SLA Met
+            parts = data_line.split()
+            if len(parts) >= 6:
+                # Responder name might have spaces, SLA Met is last two words
+                sla_met = parts[-1]  # True/False
+                responder_parts = []
+                # Work backwards to find where responder name starts
+                idx = len(parts) - 2  # Skip SLA Met value
+                while idx >= 4:  # After Ticket, Category, Urgency, Impact
+                    responder_parts.insert(0, parts[idx])
+                    idx -= 1
+
+                result["summary_table"].append({
+                    "ticket": parts[0],
+                    "category": parts[1],
+                    "urgency": int(parts[2]) if parts[2].isdigit() else parts[2],
+                    "impact": float(parts[3]) if parts[3].replace(".", "").isdigit() else parts[3],
+                    "responder": " ".join(responder_parts) if responder_parts else parts[4],
+                    "sla_met": sla_met == "True"
+                })
+
+    # Parse sample communication
+    in_communication = False
+    comm_section = []
+    for line in lines:
+        if "SAMPLE COMMUNICATION" in line:
+            in_communication = True
+            continue
+        if in_communication:
+            if line.startswith("=") and len(comm_section) > 0:
+                break
+            if line.startswith("="):
+                continue
+            comm_section.append(line)
+
+    if comm_section:
+        result["sample_communication"] = {
+            "raw": "\n".join(comm_section),
+            "audiences": []
+        }
+        # Parse individual audience communications
+        current_audience = None
+        current_content = []
+        for line in comm_section:
+            if line.startswith("---") and line.endswith("---"):
+                if current_audience and current_content:
+                    result["sample_communication"]["audiences"].append({
+                        "audience": current_audience,
+                        "content": "\n".join(current_content)
+                    })
+                current_audience = line.strip("- ").strip()
+                current_content = []
+            elif current_audience:
+                current_content.append(line)
+        # Add last audience
+        if current_audience and current_content:
+            result["sample_communication"]["audiences"].append({
+                "audience": current_audience,
+                "content": "\n".join(current_content)
+            })
+
+    # Parse evaluations
+    for line in lines:
+        if "Added evaluations to" in line:
+            parts = line.split()
+            try:
+                result["evaluations_added"] = int(parts[3])
+            except (ValueError, IndexError):
+                pass
+
+    # Determine status
+    if "Done!" in stdout:
+        result["status"] = "completed"
+    elif "ERROR" in stdout or "Traceback" in stdout:
+        result["status"] = "failed"
+    elif result["summary_table"]:
+        result["status"] = "completed"
+    else:
+        result["status"] = "running"
+
+    return result
+
+
 def create_job_history_entry(
     job_result: Dict[str, Any],
     config_path: str,
