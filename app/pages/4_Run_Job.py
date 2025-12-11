@@ -383,14 +383,15 @@ def render_job_results(job_id: str, job_info: dict):
                         value="\n".join(body_lines).strip(),
                         height=200,
                         disabled=True,
-                        key=f"comm_{aud['audience']}"
+                        key=f"comm_{job_id}_{aud['audience']}"
                     )
         else:
             st.text_area(
                 "Communication",
                 value=parsed["sample_communication"].get("raw", ""),
                 height=200,
-                disabled=True
+                disabled=True,
+                key=f"comm_{job_id}_raw"
             )
 
     # Raw logs option
