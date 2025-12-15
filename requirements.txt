@@ -1,7 +1,0 @@
-openai>=1.0.0
-anthropic>=0.18.0
-pydantic>=2.0.0
-ipywidgets>=8.0.0
-pandas>=2.0.0
-mlflow==3.2.0
-dominodatalab[agents] @ git+https://github.com/dominodatalab/python-domino.git@release-2.0.0
