@@ -1,11 +1,34 @@
-name: triageflow
+name: triageflow-agents
 version: "1.0"
-description: Multi-agent incident triage system
+description: Combined agent and tool configuration for TriageFlow
 
+# =============================================================================
+# MODEL CONFIGURATIONS
+# =============================================================================
 models:
-  openai: "gpt-4o-mini"
-  anthropic: "claude-sonnet-4-20250514"
+  local:
+    name: "qwen2.5-3b-instruct"
+    type: "local"
+    endpoint: "https://genai-llm.domino-eval.com/endpoints/bf209962-1bd0-4524-87c8-2d0ac662a022/v1"
 
+  openai:
+    name: "gpt-4o-mini"
+    type: "api"
+
+  anthropic:
+    name: "claude-sonnet-4-20250514"
+    type: "api"
+
+# Per-agent model assignment (for multi-model mode)
+agent_models:
+  classifier: "openai"
+  impact_assessor: "openai"
+  resource_matcher: "local"
+  response_drafter: "anthropic"
+
+# =============================================================================
+# TOOL DEFINITIONS
+# =============================================================================
 tools:
   classifier:
     - name: lookup_category_definitions
@@ -111,6 +134,9 @@ tools:
             description: Blast radius level
         required: [category, impact_score, blast_radius]
 
+# =============================================================================
+# AGENT CONFIGURATIONS
+# =============================================================================
 agents:
   classifier:
     temperature: 0.3
@@ -207,9 +233,30 @@ agents:
 
       Return only valid JSON after using the tools.
 
+# =============================================================================
+# SLA DEFINITIONS
+# =============================================================================
 sla:
   urgency_5: {response_hours: 1, resolution_hours: 4}
   urgency_4: {response_hours: 2, resolution_hours: 8}
   urgency_3: {response_hours: 4, resolution_hours: 24}
   urgency_2: {response_hours: 8, resolution_hours: 48}
   urgency_1: {response_hours: 24, resolution_hours: 168}
+
+# =============================================================================
+# EXPERIMENT SETTINGS
+# =============================================================================
+experiment:
+  # Models to test in grid search experiments
+  models_to_test:
+    - "local"
+    - "openai"
+    - "anthropic"
+
+  # Default temperatures to test (can be overridden via CLI)
+  temperatures:
+    default: [0.1, 0.2, 0.3, 0.4, 0.5]
+
+  # Test data for experiments
+  test_data:
+    source: "example-data/test_incidents.jsonl"

@@ -1,0 +1,4 @@
+To Do:
+
+Create separate demo app. 
+Have the judge evaluations run on a schedule, not as part of the production app
