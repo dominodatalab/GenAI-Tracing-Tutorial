@@ -15,9 +15,10 @@ Usage:
 """
 
 import argparse
+import copy
+import io
 import json
 import os
-import subprocess
 import sys
 from datetime import datetime
 from typing import Dict, List
@@ -26,7 +27,14 @@ from typing import Dict, List
 sys.path.insert(0, "/mnt/code")
 
 import mlflow
+import pandas as pd
 import yaml
+
+from domino.agents.logging import DominoRun
+
+from src.models import Incident, IncidentSource
+from src.agents import classify_incident, assess_impact, match_resources, draft_response
+from src.judges import judge_classification, judge_response, judge_triage
 
 
 def parse_args():
@@ -92,62 +100,280 @@ def get_temperatures(args, config: dict) -> List[float]:
     return [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
-def run_triage_for_temperature(
+def load_incidents(test_data_path: str = None, vertical: str = "financial_services", max_incidents: int = None) -> List[Incident]:
+    """Load incidents from test data or CSV."""
+    project_root = "/mnt/code"
+
+    if test_data_path:
+        # Load from JSONL
+        incidents = []
+        with open(test_data_path) as f:
+            for line in f:
+                data = json.loads(line)
+                incidents.append(Incident(
+                    ticket_id=data.get("ticket_id", f"TEST-{len(incidents)+1}"),
+                    title=data.get("title", ""),
+                    description=data.get("description", ""),
+                    source=IncidentSource(data.get("source", "monitoring")),
+                    reported_by=data.get("reported_by", "system"),
+                    affected_systems=data.get("affected_systems", []),
+                    timestamp=data.get("timestamp", datetime.now().isoformat())
+                ))
+    else:
+        # Load from CSV
+        csv_path = os.path.join(project_root, f"example-data/{vertical}.csv")
+        df = pd.read_csv(csv_path)
+        incidents = []
+        for _, row in df.iterrows():
+            affected = row.get("affected_systems", "")
+            if isinstance(affected, str):
+                affected = [s.strip() for s in affected.split(",") if s.strip()]
+            else:
+                affected = []
+
+            incidents.append(Incident(
+                ticket_id=str(row.get("ticket_id", f"INC-{len(incidents)+1}")),
+                title=str(row.get("title", "")),
+                description=str(row.get("description", "")),
+                source=IncidentSource(row.get("source", "monitoring")),
+                reported_by=str(row.get("reported_by", "system")),
+                affected_systems=affected,
+                timestamp=str(row.get("timestamp", datetime.now().isoformat()))
+            ))
+
+    if max_incidents:
+        incidents = incidents[:max_incidents]
+
+    return incidents
+
+
+def initialize_client(provider: str, config: dict):
+    """Initialize LLM client and enable auto-tracing."""
+    if provider == "openai":
+        from openai import OpenAI
+        mlflow.openai.autolog()
+        return OpenAI()
+
+    elif provider == "local":
+        from local_model.domino_model_client import get_domino_model_client
+        mlflow.openai.autolog()  # Local model uses OpenAI-compatible API
+        return get_domino_model_client()
+
+    elif provider == "anthropic":
+        from anthropic import Anthropic
+        mlflow.anthropic.autolog()
+        return Anthropic()
+
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def apply_temp_override(config: dict, temperature: float) -> dict:
+    """Apply temperature override to all agents in config."""
+    config = copy.deepcopy(config)
+    for agent_name in ["classifier", "impact_assessor", "resource_matcher", "response_drafter"]:
+        if agent_name in config.get("agents", {}):
+            config["agents"][agent_name]["temperature"] = temperature
+    return config
+
+
+def create_triage_function(client, provider: str, model: str, config: dict):
+    """Create the triage pipeline function with tracing."""
+    from domino.agents.tracing import add_tracing
+
+    def pipeline_evaluator(inputs, output, **kwargs):
+        """Evaluate the triage pipeline output."""
+        incident = inputs.get("incident")
+        if not incident or not output:
+            return {"combined_quality_score": 0.0}
+
+        eval_result = {}
+        try:
+            # Run classification judge
+            classification_eval = judge_classification(
+                client, provider, model, incident, output["classification"], config
+            )
+            eval_result["classification_eval"] = classification_eval
+
+            # Run response judge
+            response_evals = judge_response(
+                client, provider, model, incident, output["response"], config
+            )
+            eval_result["response_evals"] = response_evals
+
+            # Run triage judge
+            triage_eval = judge_triage(
+                client, provider, model, incident, output, config
+            )
+            eval_result["triage_eval"] = triage_eval
+
+            # Compute combined score
+            scores = []
+            if classification_eval:
+                scores.append(classification_eval.get("score", 3))
+            if response_evals:
+                scores.extend([e.get("score", 3) for e in response_evals])
+            if triage_eval:
+                scores.append(triage_eval.get("score", 3))
+
+            eval_result["combined_quality_score"] = sum(scores) / len(scores) if scores else 3.0
+
+        except Exception as e:
+            print(f"Evaluation error: {e}", file=sys.stderr)
+            eval_result["combined_quality_score"] = 3.0
+
+        return eval_result
+
+    @add_tracing(name="triage_incident", autolog_frameworks=[provider], evaluator=pipeline_evaluator)
+    def triage_incident(incident: Incident) -> dict:
+        """Run the full triage pipeline for an incident."""
+        # Agent 1: Classify
+        classification = classify_incident(client, provider, model, incident, config)
+
+        # Agent 2: Assess Impact
+        impact = assess_impact(client, provider, model, incident, classification, config)
+
+        # Agent 3: Match Resources
+        assignment = match_resources(client, provider, model, incident, classification, impact, config)
+
+        # Agent 4: Draft Response
+        response = draft_response(client, provider, model, incident, classification, impact, assignment, config)
+
+        return {
+            "classification": classification,
+            "impact": impact,
+            "assignment": assignment,
+            "response": response,
+        }
+
+    return triage_incident
+
+
+def compute_aggregated_metrics(results: List[dict]) -> dict:
+    """Compute aggregated metrics from results."""
+    if not results:
+        return {"combined_quality_score": 0.0}
+
+    metrics = {}
+
+    # Numeric fields to aggregate
+    numeric_fields = [
+        "classification_confidence",
+        "impact_score",
+        "resource_match_score",
+        "completeness_score",
+        "combined_quality_score",
+        "classification_judge_score",
+        "response_judge_score",
+        "triage_judge_score",
+    ]
+
+    for field in numeric_fields:
+        values = []
+        for r in results:
+            if field in r and isinstance(r[field], (int, float)):
+                values.append(r[field])
+            # Also check nested objects
+            elif "classification" in r and hasattr(r["classification"], "confidence") and field == "classification_confidence":
+                values.append(r["classification"].confidence)
+            elif "impact" in r and hasattr(r["impact"], "impact_score") and field == "impact_score":
+                values.append(r["impact"].impact_score)
+            elif "assignment" in r and hasattr(r["assignment"], "primary_responder") and field == "resource_match_score":
+                values.append(r["assignment"].primary_responder.match_score)
+            elif "response" in r and hasattr(r["response"], "completeness_score") and field == "completeness_score":
+                values.append(r["response"].completeness_score)
+
+        if values:
+            metrics[f"{field}_mean"] = sum(values) / len(values)
+            metrics[f"{field}_min"] = min(values)
+            metrics[f"{field}_max"] = max(values)
+
+    # Add combined quality score at top level for easy access
+    if "combined_quality_score_mean" in metrics:
+        metrics["combined_quality_score"] = metrics["combined_quality_score_mean"]
+
+    return metrics
+
+
+def run_temperature_experiment(
     model: str,
     temperature: float,
+    config: dict,
     config_path: str,
-    test_data_path: str = None,
-    max_incidents: int = None,
-    vertical: str = "financial_services"
+    incidents: List[Incident],
 ) -> Dict:
     """
     Run triage pipeline for a specific temperature configuration.
     Returns the aggregated metrics.
     """
-    # Build command
-    cmd = [
-        sys.executable,
-        os.path.join(os.path.dirname(__file__), "run_triage.py"),
-        "--experiment",
-        "--provider", model,
-        "--config", config_path,
-        "--temp-override", str(temperature),
+    # Apply temperature override
+    temp_config = apply_temp_override(config, temperature)
+
+    # Get model name
+    model_config = temp_config["models"].get(model, {})
+    if isinstance(model_config, str):
+        model_name = model_config
+    else:
+        model_name = model_config.get("name", "gpt-4o-mini")
+
+    # Initialize client
+    client = initialize_client(model, temp_config)
+
+    # Create triage function
+    triage_incident = create_triage_function(client, model, model_name, temp_config)
+
+    # Aggregated metrics for DominoRun
+    aggregated_metrics = [
+        ("classification_confidence", "mean"),
+        ("impact_score", "median"),
+        ("resource_match_score", "mean"),
+        ("completeness_score", "mean"),
+        ("classification_judge_score", "mean"),
+        ("response_judge_score", "mean"),
+        ("triage_judge_score", "mean"),
     ]
 
-    if test_data_path:
-        cmd.extend(["--test-data", test_data_path])
-    else:
-        cmd.extend(["--vertical", vertical])
+    # Process incidents within DominoRun for tracing
+    results = []
+    with DominoRun(agent_config_path=config_path, custom_summary_metrics=aggregated_metrics) as run:
+        mlflow.set_tag("mode", "temperature_experiment")
+        mlflow.set_tag("provider", model)
+        mlflow.set_tag("temperature", str(temperature))
+        mlflow.set_tag("mlflow.runName", f"{model}-temp-{temperature}")
 
-    if max_incidents:
-        cmd.extend(["--max-incidents", str(max_incidents)])
+        for incident in incidents:
+            try:
+                result = triage_incident(incident)
 
-    # Run the command and capture output
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd="/mnt/code"
-    )
+                # Extract metrics from result objects
+                result_with_metrics = {
+                    "ticket_id": incident.ticket_id,
+                    "classification": result["classification"],
+                    "impact": result["impact"],
+                    "assignment": result["assignment"],
+                    "response": result["response"],
+                    "classification_confidence": result["classification"].confidence,
+                    "impact_score": result["impact"].impact_score,
+                    "resource_match_score": result["assignment"].primary_responder.match_score,
+                    "completeness_score": result["response"].completeness_score,
+                }
+                results.append(result_with_metrics)
 
-    if result.returncode != 0:
-        print(f"Error running triage: {result.stderr}", file=sys.stderr)
-        return {"error": result.stderr, "combined_quality_score": 0.0}
+            except Exception as e:
+                print(f"Error processing {incident.ticket_id}: {e}", file=sys.stderr)
+                continue
 
-    # Parse JSON output
-    try:
-        # The output may contain some logs before the JSON
-        # Find the JSON part (starts with { and ends with })
-        output = result.stdout.strip()
-        json_start = output.rfind("{")
-        if json_start >= 0:
-            output = output[json_start:]
-        metrics = json.loads(output)
-        return metrics
-    except json.JSONDecodeError as e:
-        print(f"Error parsing output: {e}", file=sys.stderr)
-        print(f"Output was: {result.stdout[:500]}", file=sys.stderr)
-        return {"error": str(e), "combined_quality_score": 0.0}
+        # Suppress DominoRun exit messages
+        _stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+    sys.stdout = _stdout
+
+    # Compute and return aggregated metrics
+    metrics = compute_aggregated_metrics(results)
+    metrics["incidents_processed"] = len(results)
+    metrics["incidents_failed"] = len(incidents) - len(results)
+
+    return metrics
 
 
 def main():
@@ -183,6 +409,9 @@ def main():
     # Get temperatures to test
     temperatures = get_temperatures(args, config)
 
+    # Load incidents once (reused for each temperature)
+    incidents = load_incidents(test_data_path, args.vertical, args.max_incidents)
+
     # Set up experiment naming
     username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -196,7 +425,7 @@ def main():
     print(f"Temperatures: {temperatures}")
     print(f"Config: {config_path}")
     print(f"Test data: {test_data_path or 'using CSV from vertical'}")
-    print(f"Max incidents: {args.max_incidents or 'all'}")
+    print(f"Incidents loaded: {len(incidents)}")
     print(f"Experiment: {experiment_name}")
     print(f"Parent run: {parent_run_name}")
     print()
@@ -216,53 +445,42 @@ def main():
         mlflow.log_param("model_type", args.model)
         mlflow.log_param("temperatures_tested", str(temperatures))
         mlflow.log_param("num_temperatures", len(temperatures))
+        mlflow.log_param("num_incidents", len(incidents))
 
         print(f"Parent run ID: {parent_run_id}")
         print()
 
-        # Create child runs for each temperature
+        # Run experiment for each temperature
         for temp in temperatures:
             print(f"--- Temperature: {temp} ---")
 
-            with mlflow.start_run(nested=True, run_name=f"temp-{temp}") as child_run:
-                child_run_id = child_run.info.run_id
-                mlflow.log_param("temperature", temp)
-                mlflow.log_param("model_type", args.model)
+            # Run triage pipeline with tracing
+            metrics = run_temperature_experiment(
+                model=args.model,
+                temperature=temp,
+                config=config,
+                config_path=config_path,
+                incidents=incidents,
+            )
 
-                # Run triage pipeline
-                metrics = run_triage_for_temperature(
-                    model=args.model,
-                    temperature=temp,
-                    config_path=config_path,
-                    test_data_path=test_data_path,
-                    max_incidents=args.max_incidents,
-                    vertical=args.vertical
-                )
+            # Log metrics summary
+            combined_score = metrics.get("combined_quality_score", 0.0)
+            if combined_score > 0:
+                print(f"  Combined quality score: {combined_score:.3f}")
+                print(f"  Incidents processed: {metrics.get('incidents_processed', 0)}")
+            else:
+                print(f"  Error or no results")
 
-                # Log metrics to child run
-                if "error" not in metrics:
-                    for name, value in metrics.items():
-                        if isinstance(value, (int, float)):
-                            mlflow.log_metric(name, value)
-
-                    combined_score = metrics.get("combined_quality_score", 0.0)
-                    print(f"  Combined quality score: {combined_score:.3f}")
-                else:
-                    combined_score = 0.0
-                    mlflow.log_metric("error", 1.0)
-                    print(f"  Error: {metrics['error'][:100]}")
-
-                child_results.append({
-                    "run_id": child_run_id,
-                    "temperature": temp,
-                    "combined_quality_score": combined_score,
-                    "metrics": metrics
-                })
+            child_results.append({
+                "temperature": temp,
+                "combined_quality_score": combined_score,
+                "metrics": metrics
+            })
 
             print()
 
-        # Find best child run
-        best_child = max(child_results, key=lambda x: x["combined_quality_score"])
+        # Find best temperature
+        best_result = max(child_results, key=lambda x: x["combined_quality_score"])
 
         print("=" * 60)
         print("RESULTS SUMMARY")
@@ -270,28 +488,25 @@ def main():
 
         # Print all results
         for result in child_results:
-            marker = " <-- BEST" if result["run_id"] == best_child["run_id"] else ""
+            marker = " <-- BEST" if result["temperature"] == best_result["temperature"] else ""
             print(f"  temp={result['temperature']}: score={result['combined_quality_score']:.3f}{marker}")
 
         print()
-        print(f"Best temperature: {best_child['temperature']}")
-        print(f"Best score: {best_child['combined_quality_score']:.3f}")
+        print(f"Best temperature: {best_result['temperature']}")
+        print(f"Best score: {best_result['combined_quality_score']:.3f}")
 
-        # Log best child metrics to parent
-        mlflow.log_param("best_temperature", best_child["temperature"])
-        mlflow.set_tag("best_child_run_id", best_child["run_id"])
+        # Log best metrics to parent run
+        mlflow.log_param("best_temperature", best_result["temperature"])
 
-        best_metrics = best_child.get("metrics", {})
+        best_metrics = best_result.get("metrics", {})
         for key, value in best_metrics.items():
             if isinstance(value, (int, float)):
                 mlflow.log_metric(f"best_{key}", value)
 
-        # Also log the raw best score for easy comparison
-        mlflow.log_metric("best_combined_quality_score", best_child["combined_quality_score"])
+        mlflow.log_metric("best_combined_quality_score", best_result["combined_quality_score"])
 
         print()
         print(f"Parent run: {parent_run_id}")
-        print(f"Best child run: {best_child['run_id']}")
 
     print()
     print("=" * 60)
