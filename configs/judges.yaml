@@ -1,307 +1,340 @@
 name: triageflow-judges
-version: "1.0"
+version: '1.0'
 description: Combined LLM-as-Judge configurations for evaluating TriageFlow agents
-
-# =============================================================================
-# GLOBAL JUDGE SETTINGS
-# =============================================================================
 defaults:
-  model: "gpt-4o-mini"
+  model: gpt-4o-mini
   temperature: 0.1
   max_tokens: 500
-  response_format: "json"
-
-# =============================================================================
-# PER-AGENT EVALUATION CRITERIA
-# =============================================================================
+  response_format: json
 evaluators:
   classifier:
     criteria:
-      - name: json_validity
-        type: binary
-        weight: 0.2
-        prompt: |
-          Is this a valid JSON response with all required fields?
-          Required: category, subcategory, urgency, confidence, reasoning, affected_domain
-          Response: {agent_output}
-          Answer only: {"valid": true} or {"valid": false, "missing": ["field1", "field2"]}
+    - name: json_validity
+      type: binary
+      weight: 0.2
+      prompt: 'Is this a valid JSON response with all required fields?
 
-      - name: category_accuracy
-        type: binary
-        weight: 0.3
-        prompt: |
-          Ground truth category: {expected_category}
-          Agent predicted: {predicted_category}
-          Is the prediction correct? {"correct": true/false}
+        Required: category, subcategory, urgency, confidence, reasoning, affected_domain
 
-      - name: urgency_accuracy
-        type: scored
-        scale: [0, 1, 2]
-        weight: 0.3
-        prompt: |
-          Ground truth urgency: {expected_urgency}
-          Agent predicted: {predicted_urgency}
-          Score: 2 if exact match, 1 if off by 1 level, 0 if off by 2+
-          Return: {"score": N, "reason": "brief explanation"}
+        Response: {agent_output}
 
-      - name: reasoning_quality
-        type: scored
-        scale: [1, 2, 3]
-        weight: 0.2
-        prompt: |
-          Evaluate the reasoning provided for this classification:
+        Answer only: {"valid": true} or {"valid": false, "missing": ["field1", "field2"]}
 
-          Incident: {incident}
-          Classification: {classification}
-          Reasoning: {reasoning}
+        '
+    - name: category_accuracy
+      type: binary
+      weight: 0.3
+      prompt: 'Ground truth category: {expected_category}
 
-          Score 1-3:
-          1 = Poor: Vague, doesn't reference incident details
-          2 = Acceptable: References some details, logical
-          3 = Good: Specific references, clear logic chain
+        Agent predicted: {predicted_category}
 
-          Return: {"score": N, "reason": "brief explanation"}
+        Is the prediction correct? {"correct": true/false}
 
+        '
+    - name: urgency_accuracy
+      type: scored
+      scale:
+      - 0
+      - 1
+      - 2
+      weight: 0.3
+      prompt: 'Ground truth urgency: {expected_urgency}
+
+        Agent predicted: {predicted_urgency}
+
+        Score: 2 if exact match, 1 if off by 1 level, 0 if off by 2+
+
+        Return: {"score": N, "reason": "brief explanation"}
+
+        '
+    - name: reasoning_quality
+      type: scored
+      scale:
+      - 1
+      - 2
+      - 3
+      weight: 0.2
+      prompt: 'Evaluate the reasoning provided for this classification:
+
+
+        Incident: {incident}
+
+        Classification: {classification}
+
+        Reasoning: {reasoning}
+
+
+        Score 1-3:
+
+        1 = Poor: Vague, doesn''t reference incident details
+
+        2 = Acceptable: References some details, logical
+
+        3 = Good: Specific references, clear logic chain
+
+
+        Return: {"score": N, "reason": "brief explanation"}
+
+        '
   impact_assessor:
     criteria:
-      - name: json_validity
-        type: binary
-        weight: 0.15
-        prompt: |
-          Is this valid JSON with required fields?
-          Required: impact_score, affected_users_estimate, affected_systems, blast_radius, reasoning
-          Response: {agent_output}
-          Answer: {"valid": true/false}
+    - name: json_validity
+      type: binary
+      weight: 0.15
+      prompt: 'Is this valid JSON with required fields?
 
-      - name: impact_score_range
-        type: binary
-        weight: 0.25
-        prompt: |
-          Expected impact range: {expected_impact_min} to {expected_impact_max}
-          Agent score: {predicted_impact}
-          Is the score within expected range? {"in_range": true/false}
+        Required: impact_score, affected_users_estimate, affected_systems, blast_radius,
+        reasoning
 
-      - name: tool_usage
-        type: binary
-        weight: 0.25
-        prompt: |
-          Did the agent properly use both required tools?
-          Required: lookup_historical_incidents, calculate_impact_score
-          Tools called: {tools_called}
-          Answer: {"correct_usage": true/false, "missing": []}
+        Response: {agent_output}
 
-      - name: blast_radius_reasonableness
-        type: scored
-        scale: [1, 2, 3]
-        weight: 0.35
-        prompt: |
-          Given this incident and impact assessment, is the blast_radius reasonable?
+        Answer: {"valid": true/false}
 
-          Incident: {incident}
-          Affected users: {affected_users}
-          Affected systems: {affected_systems}
-          Blast radius: {blast_radius}
+        '
+    - name: impact_score_range
+      type: binary
+      weight: 0.25
+      prompt: 'Expected impact range: {expected_impact_min} to {expected_impact_max}
 
-          1 = Unreasonable (clearly over/under-estimated)
-          2 = Acceptable (reasonable interpretation)
-          3 = Accurate (well-justified given the data)
+        Agent score: {predicted_impact}
 
-          Return: {"score": N, "reason": "brief"}
+        Is the score within expected range? {"in_range": true/false}
 
+        '
+    - name: tool_usage
+      type: binary
+      weight: 0.25
+      prompt: 'Did the agent properly use both required tools?
+
+        Required: lookup_historical_incidents, calculate_impact_score
+
+        Tools called: {tools_called}
+
+        Answer: {"correct_usage": true/false, "missing": []}
+
+        '
+    - name: blast_radius_reasonableness
+      type: scored
+      scale:
+      - 1
+      - 2
+      - 3
+      weight: 0.35
+      prompt: 'Given this incident and impact assessment, is the blast_radius reasonable?
+
+
+        Incident: {incident}
+
+        Affected users: {affected_users}
+
+        Affected systems: {affected_systems}
+
+        Blast radius: {blast_radius}
+
+
+        1 = Unreasonable (clearly over/under-estimated)
+
+        2 = Acceptable (reasonable interpretation)
+
+        3 = Accurate (well-justified given the data)
+
+
+        Return: {"score": N, "reason": "brief"}
+
+        '
   resource_matcher:
     criteria:
-      - name: json_validity
-        type: binary
-        weight: 0.2
-        prompt: |
-          Valid JSON with: primary_responder, backup_responders, sla_target_hours, sla_met, escalation_path?
-          Response: {agent_output}
-          Answer: {"valid": true/false}
+    - name: json_validity
+      type: binary
+      weight: 0.2
+      prompt: 'Valid JSON with: primary_responder, backup_responders, sla_target_hours,
+        sla_met, escalation_path?
 
-      - name: skill_match
-        type: scored
-        scale: [1, 2, 3]
-        weight: 0.4
-        prompt: |
-          Incident category: {category}
-          Required skills (inferred): {inferred_skills}
-          Primary responder skills: {responder_skills}
+        Response: {agent_output}
 
-          1 = Poor match (missing critical skills)
-          2 = Partial match (has some relevant skills)
-          3 = Good match (has key required skills)
+        Answer: {"valid": true/false}
 
-          Return: {"score": N, "reason": "brief"}
+        '
+    - name: skill_match
+      type: scored
+      scale:
+      - 1
+      - 2
+      - 3
+      weight: 0.4
+      prompt: 'Incident category: {category}
 
-      - name: sla_consistency
-        type: binary
-        weight: 0.4
-        prompt: |
-          Urgency: {urgency}
-          Defined SLA: {defined_sla_hours}
-          Agent SLA target: {agent_sla_hours}
+        Required skills (inferred): {inferred_skills}
 
-          Is the agent's SLA target consistent with the defined SLAs?
-          Return: {"consistent": true/false}
+        Primary responder skills: {responder_skills}
 
+
+        1 = Poor match (missing critical skills)
+
+        2 = Partial match (has some relevant skills)
+
+        3 = Good match (has key required skills)
+
+
+        Return: {"score": N, "reason": "brief"}
+
+        '
+    - name: sla_consistency
+      type: binary
+      weight: 0.4
+      prompt: 'Urgency: {urgency}
+
+        Defined SLA: {defined_sla_hours}
+
+        Agent SLA target: {agent_sla_hours}
+
+
+        Is the agent''s SLA target consistent with the defined SLAs?
+
+        Return: {"consistent": true/false}
+
+        '
   response_drafter:
     criteria:
-      - name: json_validity
-        type: binary
-        weight: 0.15
-        prompt: |
-          Valid JSON with: communications, action_items, estimated_resolution_time, escalation_required?
-          Response: {agent_output}
-          Answer: {"valid": true/false}
+    - name: json_validity
+      type: binary
+      weight: 0.15
+      prompt: 'Valid JSON with: communications, action_items, estimated_resolution_time,
+        escalation_required?
 
-      - name: audience_coverage
-        type: scored
-        scale: [1, 2, 3]
-        weight: 0.3
-        prompt: |
-          Impact score: {impact_score}
-          Blast radius: {blast_radius}
-          Communications sent to: {audiences}
+        Response: {agent_output}
 
-          1 = Missing critical stakeholders
-          2 = Covers main stakeholders
-          3 = Comprehensive coverage appropriate to impact
+        Answer: {"valid": true/false}
 
-          Return: {"score": N, "reason": "brief"}
+        '
+    - name: audience_coverage
+      type: scored
+      scale:
+      - 1
+      - 2
+      - 3
+      weight: 0.3
+      prompt: 'Impact score: {impact_score}
 
-      - name: tone_appropriateness
-        type: scored
-        scale: [1, 2, 3]
-        weight: 0.25
-        prompt: |
-          Urgency level: {urgency}
-          Communication samples:
-          {communication_samples}
+        Blast radius: {blast_radius}
 
-          1 = Tone mismatched to urgency (too casual for critical, too alarming for minor)
-          2 = Acceptable tone
-          3 = Tone well-calibrated to urgency
+        Communications sent to: {audiences}
 
-          Return: {"score": N, "reason": "brief"}
 
-      - name: actionability
-        type: scored
-        scale: [1, 2, 3]
-        weight: 0.3
-        prompt: |
-          Action items: {action_items}
+        1 = Missing critical stakeholders
 
-          1 = Vague or missing actions
-          2 = Some actionable items
-          3 = Clear, specific, assignable actions
+        2 = Covers main stakeholders
 
-          Return: {"score": N, "reason": "brief"}
+        3 = Comprehensive coverage appropriate to impact
 
-# =============================================================================
-# HOLISTIC JUDGES (run after full pipeline)
-# =============================================================================
+
+        Return: {"score": N, "reason": "brief"}
+
+        '
+    - name: tone_appropriateness
+      type: scored
+      scale:
+      - 1
+      - 2
+      - 3
+      weight: 0.25
+      prompt: 'Urgency level: {urgency}
+
+        Communication samples:
+
+        {communication_samples}
+
+
+        1 = Tone mismatched to urgency (too casual for critical, too alarming for
+        minor)
+
+        2 = Acceptable tone
+
+        3 = Tone well-calibrated to urgency
+
+
+        Return: {"score": N, "reason": "brief"}
+
+        '
+    - name: actionability
+      type: scored
+      scale:
+      - 1
+      - 2
+      - 3
+      weight: 0.3
+      prompt: 'Action items: {action_items}
+
+
+        1 = Vague or missing actions
+
+        2 = Some actionable items
+
+        3 = Clear, specific, assignable actions
+
+
+        Return: {"score": N, "reason": "brief"}
+
+        '
 holistic_judges:
   classification_judge:
     description: Evaluates the quality of incident classification
     temperature: 0.1
     max_tokens: 300
-    prompt: |
-      Evaluate this incident classification. Score 1-5 (5=excellent).
-
-      Incident: {incident}
-
-      Classification:
-      - Category: {category}
-      - Subcategory: {subcategory}
-      - Urgency: {urgency}
-      - Confidence: {confidence}
-      - Reasoning: {reasoning}
-
-      Evaluate:
-      1. Is the category appropriate for this incident?
-      2. Is the urgency level justified by the description?
-      3. Is the reasoning sound and specific?
-      4. Is the confidence level calibrated appropriately?
-
-      Return JSON:
-      {
-          "score": <1-5>,
-          "category_appropriate": <true/false>,
-          "urgency_justified": <true/false>,
-          "reasoning_quality": <1-3>,
-          "rationale": "<brief explanation>"
-      }
-
+    prompt: "Evaluate this incident classification. Score 1-5 (5=excellent).\n\nIncident:\
+      \ {incident}\n\nClassification:\n- Category: {category}\n- Subcategory: {subcategory}\n\
+      - Urgency: {urgency}\n- Confidence: {confidence}\n- Reasoning: {reasoning}\n\
+      \nEvaluate:\n1. Is the category appropriate for this incident?\n2. Is the urgency\
+      \ level justified by the description?\n3. Is the reasoning sound and specific?\n\
+      4. Is the confidence level calibrated appropriately?\n\nReturn JSON:\n{\n  \
+      \  \"score\": <1-5>,\n    \"category_appropriate\": <true/false>,\n    \"urgency_justified\"\
+      : <true/false>,\n    \"reasoning_quality\": <1-3>,\n    \"rationale\": \"<brief\
+      \ explanation>\"\n}\n"
   response_judge:
     description: Evaluates the quality of incident response communications
     temperature: 0.1
     max_tokens: 300
-    prompt: |
-      Evaluate this incident communication. Score 1-5 (5=excellent).
-
-      Incident: {incident}
-      Urgency Level: {urgency}
-
-      Communication to {audience}:
-      Subject: {subject}
-      Body: {body}
-
-      Evaluate:
-      1. Is the tone appropriate for the audience and urgency?
-      2. Is the information clear and complete?
-      3. Does it convey appropriate urgency?
-      4. Are the next steps actionable?
-
-      Return JSON:
-      {
-          "score": <1-5>,
-          "tone_appropriate": <true/false>,
-          "information_clear": <true/false>,
-          "urgency_conveyed": <true/false>,
-          "actionable": <true/false>,
-          "rationale": "<brief explanation>"
-      }
-
+    prompt: "Evaluate this incident communication. Score 1-5 (5=excellent).\n\nIncident:\
+      \ {incident}\nUrgency Level: {urgency}\n\nCommunication to {audience}:\nSubject:\
+      \ {subject}\nBody: {body}\n\nEvaluate:\n1. Is the tone appropriate for the audience\
+      \ and urgency?\n2. Is the information clear and complete?\n3. Does it convey\
+      \ appropriate urgency?\n4. Are the next steps actionable?\n\nReturn JSON:\n\
+      {\n    \"score\": <1-5>,\n    \"tone_appropriate\": <true/false>,\n    \"information_clear\"\
+      : <true/false>,\n    \"urgency_conveyed\": <true/false>,\n    \"actionable\"\
+      : <true/false>,\n    \"rationale\": \"<brief explanation>\"\n}\n"
   triage_judge:
     description: Evaluates the overall quality of a complete triage decision
     temperature: 0.1
     max_tokens: 400
-    prompt: |
-      Evaluate this complete incident triage. Score 1-5 (5=excellent).
-
-      Incident: {incident}
-
-      Triage Summary:
-      - Category: {category} (Urgency: {urgency})
-      - Impact Score: {impact_score}/10, Blast Radius: {blast_radius}
-      - Primary Responder: {responder} (Match Score: {match_score})
-      - SLA Met: {sla_met}
-      - Action Items: {action_count}
-      - Escalation Required: {escalation}
-
-      Evaluate the overall triage quality:
-      1. Is the classification appropriate for the incident?
-      2. Is the impact assessment reasonable?
-      3. Is the resource assignment logical given the incident type?
-      4. Is the response plan comprehensive?
-
-      Return JSON:
-      {
-          "score": <1-5>,
-          "classification_quality": <1-3>,
-          "impact_assessment_quality": <1-3>,
-          "resource_assignment_quality": <1-3>,
-          "response_plan_quality": <1-3>,
-          "rationale": "<brief explanation>"
-      }
-
-# =============================================================================
-# AD HOC EVALUATION THRESHOLDS
-# =============================================================================
+    prompt: "Evaluate this complete incident triage. Score 1-5 (5=excellent).\n\n\
+      Incident: {incident}\n\nTriage Summary:\n- Category: {category} (Urgency: {urgency})\n\
+      - Impact Score: {impact_score}/10, Blast Radius: {blast_radius}\n- Primary Responder:\
+      \ {responder} (Match Score: {match_score})\n- SLA Met: {sla_met}\n- Action Items:\
+      \ {action_count}\n- Escalation Required: {escalation}\n\nEvaluate the overall\
+      \ triage quality:\n1. Is the classification appropriate for the incident?\n\
+      2. Is the impact assessment reasonable?\n3. Is the resource assignment logical\
+      \ given the incident type?\n4. Is the response plan comprehensive?\n\nReturn\
+      \ JSON:\n{\n    \"score\": <1-5>,\n    \"classification_quality\": <1-3>,\n\
+      \    \"impact_assessment_quality\": <1-3>,\n    \"resource_assignment_quality\"\
+      : <1-3>,\n    \"response_plan_quality\": <1-3>,\n    \"rationale\": \"<brief\
+      \ explanation>\"\n}\n"
 thresholds:
   urgency_threshold: 4
   impact_threshold: 7
   quality_threshold: 3.5
   needs_manual_review_when:
-    - "urgency >= urgency_threshold AND impact_score >= impact_threshold"
-    - "combined_quality_score < quality_threshold"
+  - urgency >= urgency_threshold AND impact_score >= impact_threshold
+  - combined_quality_score < quality_threshold
+optimized_judge:
+  financial_services:
+    model: gpt-4o-mini
+    temperature: 0.0
+    prompt_style: direct
+    scale: binary
+    validated_metrics:
+      human_agreement: 1.0
+      consistency_std: 0.0
+      json_parse_rate: 1.0
+      avg_latency_ms: 1283.8
+    batch_id: domino-andrea-20251216-220217
+    validated_at: '2025-12-16T22:15:34.174631'

@@ -1,0 +1,78 @@
+# Judge Experiment Grid Configuration
+# Defines parameter spaces for judge optimization experiments
+
+judge_experiment:
+  # Experiment metadata
+  name: "judge-optimization"
+  description: "Grid search for optimal judge configurations"
+
+  # Test data configuration
+  test_data:
+    source: "example-data/test_incidents.jsonl"
+    max_incidents: 10
+
+  # Consistency testing
+  consistency:
+    runs_per_config: 3  # Run each config multiple times to measure consistency
+
+  # Parameter grid for judge optimization
+  grid:
+    model: [gpt-4o-mini, gpt-4o, claude-sonnet]
+    temperature: [0.0, 0.1, 0.3]
+    prompt_style: [direct, cot, rubric]
+    scale: [binary, three_point]
+
+  # Metrics to track
+  metrics:
+    - consistency_std        # Standard deviation across repeated runs
+    - avg_latency_ms         # Average response time
+    - json_parse_success     # Rate of valid JSON responses
+
+# Model configurations
+models:
+  gpt-4o-mini:
+    provider: openai
+    name: "gpt-4o-mini"
+  gpt-4o:
+    provider: openai
+    name: "gpt-4o"
+  claude-sonnet:
+    provider: anthropic
+    name: "claude-sonnet-4-20250514"
+
+# Prompt style variants
+prompt_styles:
+  direct:
+    prefix: ""
+    suffix: "Answer directly."
+
+  cot:
+    prefix: "Think step by step about each criterion before scoring."
+    suffix: "First explain your reasoning, then provide your final score."
+
+  rubric:
+    prefix: |
+      Use the following rubric to guide your evaluation:
+      - Excellent (highest): Exceeds expectations on all criteria
+      - Good: Meets expectations with minor issues
+      - Acceptable: Meets minimum requirements
+      - Poor: Fails to meet requirements
+      - Unacceptable (lowest): Completely fails
+    suffix: "Apply the rubric systematically."
+
+# Scale configurations
+scales:
+  binary:
+    values: [0, 1]
+    labels: ["fail", "pass"]
+    description: "Binary pass/fail evaluation"
+
+  three_point:
+    values: [1, 2, 3]
+    labels: ["poor", "acceptable", "good"]
+    description: "Three-point quality scale"
+
+  five_point:
+    values: [1, 2, 3, 4, 5]
+    labels: ["unacceptable", "poor", "acceptable", "good", "excellent"]
+    description: "Five-point quality scale"
