@@ -135,10 +135,21 @@ def launch_job(command: str, title: str, dry_run: bool = False) -> Dict:
         project_info = get_project_info()
         project = f"{project_info['owner']}/{project_info['name']}"
 
+        print(f"  Connecting to project: {project}")
         domino = Domino(project)
+
+        print(f"  Starting job: {title}")
+        print(f"  Command: {command}")
         result = domino.job_start(command=command, title=title)
 
-        return result
+        # Extract job ID from result (structure varies by python-domino version)
+        job_id = None
+        if isinstance(result, dict):
+            job_id = result.get("id") or result.get("jobId") or result.get("runId")
+        elif hasattr(result, "id"):
+            job_id = result.id
+
+        return {"id": job_id, "status": "submitted", "raw": result}
 
     except ImportError:
         print("Warning: domino package not available. Running in local mode.")
@@ -147,6 +158,8 @@ def launch_job(command: str, title: str, dry_run: bool = False) -> Dict:
 
     except Exception as e:
         print(f"Error launching job: {e}")
+        import traceback
+        traceback.print_exc()
         return {"id": "error", "status": "failed", "error": str(e)}
 
 
