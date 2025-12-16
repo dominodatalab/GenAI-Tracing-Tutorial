@@ -121,12 +121,13 @@ def build_job_command(
     return " ".join(cmd_parts)
 
 
-def launch_job(command: str, title: str, dry_run: bool = False) -> Dict:
-    """Launch a Domino job with the given command."""
+def launch_job(command: str, title: str, dry_run: bool = False, branch: str = "6.2") -> Dict:
+    """Launch a Domino job with the given command on a specific branch."""
     if dry_run:
         print(f"[DRY RUN] Would launch job:")
         print(f"  Title: {title}")
         print(f"  Command: {command}")
+        print(f"  Branch: {branch}")
         return {"id": "dry-run", "status": "dry-run"}
 
     try:
@@ -140,9 +141,24 @@ def launch_job(command: str, title: str, dry_run: bool = False) -> Dict:
 
         print(f"  Starting job: {title}")
         print(f"  Command: {command}")
-        result = domino.job_start(command=command, title=title)
+        print(f"  Branch: {branch}")
 
-        # Extract job ID from result (structure varies by python-domino version)
+        # Build the job request body with git branch reference
+        job_body = {
+            "projectId": domino.project_id,
+            "commandToRun": command,
+            "title": title,
+            "mainRepoGitRef": {
+                "type": "branches",
+                "value": branch
+            }
+        }
+
+        # Use the Domino API routes to get the correct URL
+        url = domino._routes.job_start()
+        result = domino.request_manager.post(url, json=job_body).json()
+
+        # Extract job ID from result
         job_id = None
         if isinstance(result, dict):
             job_id = result.get("id") or result.get("jobId") or result.get("runId")

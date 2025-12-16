@@ -500,19 +500,47 @@ def run_experiment_mode(args, config_path: str, config: dict, incidents: list) -
     # Create triage function
     triage_incident = create_triage_function(client, args.provider, model, config)
 
-    # Process incidents
+    # Set up experiment naming to match run_model_experiment.py
+    username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
+    experiment_name = f"agent-optimization-{username}"
+    mlflow.set_experiment(experiment_name)
+
+    # Aggregated metrics for DominoRun
+    aggregated_metrics = [
+        ("classification_confidence", "mean"),
+        ("impact_score", "median"),
+        ("resource_match_score", "mean"),
+        ("completeness_score", "mean"),
+        ("classification_judge_score", "mean"),
+        ("response_judge_score", "mean"),
+        ("triage_judge_score", "mean"),
+    ]
+
+    # Process incidents within DominoRun for tracing
     results = []
-    for incident in incidents:
-        try:
-            result = triage_incident(incident)
-            results.append({
-                "ticket_id": incident.ticket_id,
-                **result
-            })
-        except Exception as e:
-            # Log error but continue
-            print(f"Error processing {incident.ticket_id}: {e}", file=sys.stderr)
-            continue
+    with DominoRun(agent_config_path=config_path, custom_summary_metrics=aggregated_metrics) as run:
+        mlflow.set_tag("mode", "experiment")
+        mlflow.set_tag("provider", args.provider)
+        if args.temp_override is not None:
+            mlflow.set_tag("temperature", str(args.temp_override))
+
+        for incident in incidents:
+            try:
+                result = triage_incident(incident)
+                results.append({
+                    "ticket_id": incident.ticket_id,
+                    **result
+                })
+            except Exception as e:
+                # Log error but continue
+                print(f"Error processing {incident.ticket_id}: {e}", file=sys.stderr)
+                continue
+
+        # Suppress DominoRun exit messages
+        _stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+    sys.stdout = _stdout
 
     # Compute and return aggregated metrics
     metrics = compute_aggregated_metrics(results)
