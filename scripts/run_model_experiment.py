@@ -336,8 +336,10 @@ def run_temperature_experiment(
     results = []
     with DominoRun(agent_config_path=config_path, custom_summary_metrics=aggregated_metrics) as run:
         mlflow.set_tag("mode", "temperature_experiment")
+        mlflow.set_tag("model", model)
         mlflow.set_tag("provider", model)
         mlflow.set_tag("temperature", str(temperature))
+        mlflow.set_tag("experiment_type", "temperature_grid_search")
         mlflow.set_tag("mlflow.runName", f"{model}-temp-{temperature}")
 
         for incident in incidents:
@@ -435,78 +437,50 @@ def main():
 
     child_results = []
 
-    # Create parent run for this model
-    with mlflow.start_run(run_name=parent_run_name) as parent_run:
-        parent_run_id = parent_run.info.run_id
+    # Run experiment for each temperature (each creates its own DominoRun)
+    for temp in temperatures:
+        print(f"--- Temperature: {temp} ---")
 
-        # Log parent run parameters
-        mlflow.set_tag("model", args.model)
-        mlflow.set_tag("experiment_type", "temperature_grid_search")
-        mlflow.log_param("model_type", args.model)
-        mlflow.log_param("temperatures_tested", str(temperatures))
-        mlflow.log_param("num_temperatures", len(temperatures))
-        mlflow.log_param("num_incidents", len(incidents))
+        # Run triage pipeline with tracing
+        metrics = run_temperature_experiment(
+            model=args.model,
+            temperature=temp,
+            config=config,
+            config_path=config_path,
+            incidents=incidents,
+        )
 
-        print(f"Parent run ID: {parent_run_id}")
-        print()
+        # Log metrics summary
+        combined_score = metrics.get("combined_quality_score", 0.0)
+        if combined_score > 0:
+            print(f"  Combined quality score: {combined_score:.3f}")
+            print(f"  Incidents processed: {metrics.get('incidents_processed', 0)}")
+        else:
+            print(f"  Error or no results")
 
-        # Run experiment for each temperature
-        for temp in temperatures:
-            print(f"--- Temperature: {temp} ---")
-
-            # Run triage pipeline with tracing
-            metrics = run_temperature_experiment(
-                model=args.model,
-                temperature=temp,
-                config=config,
-                config_path=config_path,
-                incidents=incidents,
-            )
-
-            # Log metrics summary
-            combined_score = metrics.get("combined_quality_score", 0.0)
-            if combined_score > 0:
-                print(f"  Combined quality score: {combined_score:.3f}")
-                print(f"  Incidents processed: {metrics.get('incidents_processed', 0)}")
-            else:
-                print(f"  Error or no results")
-
-            child_results.append({
-                "temperature": temp,
-                "combined_quality_score": combined_score,
-                "metrics": metrics
-            })
-
-            print()
-
-        # Find best temperature
-        best_result = max(child_results, key=lambda x: x["combined_quality_score"])
-
-        print("=" * 60)
-        print("RESULTS SUMMARY")
-        print("=" * 60)
-
-        # Print all results
-        for result in child_results:
-            marker = " <-- BEST" if result["temperature"] == best_result["temperature"] else ""
-            print(f"  temp={result['temperature']}: score={result['combined_quality_score']:.3f}{marker}")
+        child_results.append({
+            "temperature": temp,
+            "combined_quality_score": combined_score,
+            "metrics": metrics
+        })
 
         print()
-        print(f"Best temperature: {best_result['temperature']}")
-        print(f"Best score: {best_result['combined_quality_score']:.3f}")
 
-        # Log best metrics to parent run
-        mlflow.log_param("best_temperature", best_result["temperature"])
+    # Find best temperature
+    best_result = max(child_results, key=lambda x: x["combined_quality_score"])
 
-        best_metrics = best_result.get("metrics", {})
-        for key, value in best_metrics.items():
-            if isinstance(value, (int, float)):
-                mlflow.log_metric(f"best_{key}", value)
+    print("=" * 60)
+    print("RESULTS SUMMARY")
+    print("=" * 60)
 
-        mlflow.log_metric("best_combined_quality_score", best_result["combined_quality_score"])
+    # Print all results
+    for result in child_results:
+        marker = " <-- BEST" if result["temperature"] == best_result["temperature"] else ""
+        print(f"  temp={result['temperature']}: score={result['combined_quality_score']:.3f}{marker}")
 
-        print()
-        print(f"Parent run: {parent_run_id}")
+    print()
+    print(f"Best temperature: {best_result['temperature']}")
+    print(f"Best score: {best_result['combined_quality_score']:.3f}")
 
     print()
     print("=" * 60)
