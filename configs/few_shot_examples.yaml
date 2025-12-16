@@ -1,0 +1,66 @@
+# Few-Shot Examples for Agent Experimentation
+# Examples ordered by type: clear cases first, then edge cases
+
+classifier:
+  # Clear cases
+  - input: |
+      {"ticket_id": "INC-001", "title": "Production database CPU at 100%", "description": "Database server CPU spiked to 100%, all queries timing out. Multiple applications affected.", "source": "monitoring", "affected_systems": ["prod-db-01", "app-server-01", "app-server-02"]}
+    output: |
+      {"category": "performance", "subcategory": "resource_exhaustion", "urgency": 5, "confidence": 0.95, "reasoning": "Database CPU saturation causing application-wide timeouts indicates critical performance issue", "affected_domain": "infrastructure"}
+
+  - input: |
+      {"ticket_id": "INC-002", "title": "Suspicious login attempts detected", "description": "Security monitoring detected 500+ failed login attempts from unknown IP addresses targeting admin accounts.", "source": "security_alert", "affected_systems": ["auth-server-01"]}
+    output: |
+      {"category": "security", "subcategory": "brute_force_attack", "urgency": 4, "confidence": 0.90, "reasoning": "High volume failed logins from unknown sources indicates potential credential stuffing attack", "affected_domain": "security"}
+
+  - input: |
+      {"ticket_id": "INC-003", "title": "Cannot access CRM application", "description": "User reports unable to login to CRM. Gets 'access denied' error. Other users can access fine.", "source": "user_report", "affected_systems": ["crm-app"]}
+    output: |
+      {"category": "user_access", "subcategory": "permission_issue", "urgency": 2, "confidence": 0.85, "reasoning": "Single user access issue with other users unaffected suggests permission or account configuration problem", "affected_domain": "business_apps"}
+
+  # Edge cases - tricky to classify
+  - input: |
+      {"ticket_id": "INC-004", "title": "User locked out after password attempts", "description": "User locked out of account after too many failed password attempts. Claims they never tried to login.", "source": "user_report", "affected_systems": ["auth-server-01"]}
+    output: |
+      {"category": "security", "subcategory": "credential_compromise", "urgency": 4, "confidence": 0.75, "reasoning": "Account lockout without user action suggests potential credential compromise attempt. Escalate for investigation.", "affected_domain": "security"}
+    note: "Edge case: Could be user_access OR security. The claim of 'never tried to login' makes this a security concern."
+
+  - input: |
+      {"ticket_id": "INC-005", "title": "Monthly compliance report not generated", "description": "Automated monthly compliance report failed to generate. Report due to regulators in 3 days.", "source": "monitoring", "affected_systems": ["reporting-server"]}
+    output: |
+      {"category": "compliance", "subcategory": "reporting_failure", "urgency": 3, "confidence": 0.80, "reasoning": "Report failure with regulatory deadline creates compliance risk, but 3-day window provides time for resolution", "affected_domain": "compliance"}
+    note: "Edge case: Could be operational OR compliance. Regulatory deadline makes this compliance."
+
+  - input: |
+      {"ticket_id": "INC-006", "title": "Slow network in building 2", "description": "Users in building 2 reporting slow network speeds. Downloads taking much longer than usual.", "source": "user_report", "affected_systems": ["network-switch-b2"]}
+    output: |
+      {"category": "infrastructure", "subcategory": "network_degradation", "urgency": 2, "confidence": 0.85, "reasoning": "Localized network slowdown affecting single building suggests infrastructure/network issue, not application performance", "affected_domain": "infrastructure"}
+    note: "Edge case: Could be performance OR infrastructure. Physical location suggests network/infrastructure."
+
+impact_assessor:
+  - input:
+      incident: "Production API returning 500 errors for all requests"
+      classification: {"category": "performance", "urgency": 5}
+    output: |
+      {"impact_score": 9.2, "affected_users_estimate": 5000, "affected_systems": ["api-gateway", "backend-services"], "financial_exposure": 50000, "blast_radius": "organization", "reasoning": "Complete API failure affects all customers and downstream systems"}
+
+  - input:
+      incident: "Single user cannot print to network printer"
+      classification: {"category": "infrastructure", "urgency": 1}
+    output: |
+      {"impact_score": 1.5, "affected_users_estimate": 1, "affected_systems": ["printer-floor2"], "financial_exposure": null, "blast_radius": "contained", "reasoning": "Isolated printer issue affecting single user with no business impact"}
+
+response_drafter:
+  - input:
+      incident: "Database failover completed after primary failure"
+      urgency: 4
+      audience: "technical"
+    output: |
+      {"audience": "technical", "subject": "DB Failover Complete - Primary Under Investigation", "body": "At 14:32 UTC, prod-db-01 experienced hardware failure. Automatic failover to prod-db-02 completed at 14:35 UTC. Services restored. RCA scheduled for tomorrow.", "urgency_indicator": "high"}
+
+  - input:
+      incident: "Scheduled maintenance window for security patches"
+      urgency: 2
+      audience: "business"
+    output: |
+      {"audience": "business", "subject": "Planned System Maintenance - Sunday 2AM-4AM", "body": "We will be performing routine security updates this Sunday from 2AM to 4AM. Most systems will remain available, but you may experience brief interruptions. No action required.", "urgency_indicator": "low"}

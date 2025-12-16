@@ -1,0 +1,57 @@
+# Agent Experiment Grid Configuration
+# Defines parameter spaces for multi-agent experimentation
+
+agent_experiment:
+  # Experiment metadata
+  name: "agent-optimization"
+  description: "Multi-parameter grid search for agent optimization"
+
+  # Sampling configuration
+  sampling:
+    enabled: true
+    sample_size: 50  # Number of random samples from grid
+    seed: 42         # For reproducibility
+
+  # Test data configuration
+  test_data:
+    source: "example-data/test_incidents.jsonl"
+    max_incidents: 10
+
+  # Per-agent parameter grids
+  # Each parameter can be a single value or list of values to test
+
+  classifier:
+    model: [local, openai]
+    temperature: [0.1, 0.2, 0.3]
+    few_shot_count: [0, 2, 4]
+    system_prompt_variant: [minimal, detailed, rubric]
+
+  impact_assessor:
+    model: [local, openai]
+    temperature: [0.3, 0.4, 0.5]
+    chain_of_thought: [true, false]
+    system_prompt_variant: [scoring_rubric, open_analysis]
+
+  resource_matcher:
+    model: [local, openai]
+    temperature: [0.0, 0.1, 0.2]
+    tool_description_style: [minimal, verbose]
+
+  response_drafter:
+    model: [local, openai]
+    temperature: [0.5, 0.7, 0.9]
+    tone: [formal, professional]
+    length_guidance: [concise, standard]
+    few_shot_count: [0, 1, 2]
+
+# Model configurations (referenced by name above)
+models:
+  local:
+    provider: local
+    name: "qwen2.5-3b-instruct"
+  openai:
+    provider: openai
+    name: "gpt-4o-mini"
+  anthropic:
+    provider: anthropic
+    name: "claude-sonnet-4-20250514"

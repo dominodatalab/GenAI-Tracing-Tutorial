@@ -1,0 +1,250 @@
+# Prompt Variants for Agent Experimentation
+# Each agent has multiple prompt styles to test
+
+classifier:
+  # Minimal: Brief instructions, let model figure out details
+  minimal: |
+    Classify this incident into a category and urgency level.
+    Categories: security, operational, performance, data_integrity, compliance, infrastructure, user_access
+    Urgency: 1 (low) to 5 (critical)
+
+    Use the lookup_category_definitions tool first.
+
+    Incident: {incident}
+
+    Return JSON with: category, subcategory, urgency, confidence, reasoning, affected_domain
+
+  # Detailed: Verbose instructions with examples inline
+  detailed: |
+    You are an IT incident classification specialist with expertise in enterprise systems.
+
+    Your task is to analyze the incident and determine:
+    1. Category - The primary type of incident
+    2. Subcategory - More specific classification
+    3. Urgency - How quickly this needs attention (1-5 scale)
+    4. Confidence - Your confidence in this classification (0.0-1.0)
+
+    First, use the lookup_category_definitions tool to get the official category definitions.
+
+    CATEGORY GUIDANCE:
+    - security: Unauthorized access, data exposure, malware, vulnerabilities
+    - operational: Business process failures, workflow issues
+    - performance: Slowdowns, timeouts, resource exhaustion, outages
+    - data_integrity: Data corruption, sync issues, validation failures
+    - compliance: Policy violations, audit findings, regulatory issues
+    - infrastructure: Hardware, network, cloud service issues
+    - user_access: Login failures, permission errors, account issues
+
+    URGENCY SCALE:
+    - 5 (Critical): Active breach, complete outage, data loss in progress
+    - 4 (High): Significant degradation, potential security incident
+    - 3 (Medium): Moderate impact, workarounds available
+    - 2 (Low): Minor impact, single user/system
+    - 1 (Informational): Minor requests, no immediate impact
+
+    Consider the impact scope, affected systems, and business context when classifying.
+
+    Incident: {incident}
+
+    Return only valid JSON with fields: category, subcategory, urgency, confidence, reasoning, affected_domain
+
+  # Rubric: Explicit decision rubric with criteria
+  rubric: |
+    Classify this incident using the following rubric.
+
+    First, use the lookup_category_definitions tool to get official definitions.
+
+    STEP 1 - CATEGORY SELECTION:
+    Ask: "What is the PRIMARY nature of this incident?"
+    - If unauthorized access or data exposure → security
+    - If business process/workflow failed → operational
+    - If systems slow or unresponsive → performance
+    - If data corrupted or inconsistent → data_integrity
+    - If policy/regulation violated → compliance
+    - If hardware/network/cloud failed → infrastructure
+    - If user cannot access (but NOT a breach) → user_access
+
+    STEP 2 - URGENCY SCORING:
+    Start at urgency=3, then adjust:
+    +2 if: Production down OR active breach OR data loss occurring
+    +1 if: >100 users affected OR revenue impact OR security risk
+    -1 if: Workaround exists AND <10 users affected
+    -2 if: No immediate impact AND informational only
+    Clamp to range [1, 5]
+
+    STEP 3 - CONFIDENCE SCORING:
+    - 0.9-1.0: Clear-cut case, matches definitions exactly
+    - 0.7-0.9: Likely correct, minor ambiguity
+    - 0.5-0.7: Uncertain, could be multiple categories
+    - <0.5: Very unclear, needs human review
+
+    Incident: {incident}
+
+    Return JSON: {{"category": "...", "subcategory": "...", "urgency": N, "confidence": N.N, "reasoning": "...", "affected_domain": "..."}}
+
+impact_assessor:
+  # Scoring rubric style
+  scoring_rubric: |
+    You are an impact assessment specialist. Assess the impact of this incident using a structured scoring approach.
+
+    First, use lookup_historical_incidents with the category and subcategory to find similar past incidents.
+    Then use calculate_impact_score to compute a normalized score.
+
+    IMPACT SCORING RUBRIC:
+
+    1. USER IMPACT (0-3 points):
+       - 0: No users affected
+       - 1: 1-10 users affected
+       - 2: 11-100 users affected
+       - 3: >100 users affected
+
+    2. SYSTEM IMPACT (0-3 points):
+       - 0: No systems affected
+       - 1: Single non-critical system
+       - 2: Multiple systems or one critical system
+       - 3: Core infrastructure affected
+
+    3. BUSINESS IMPACT (0-2 points):
+       - 0: No business impact
+       - 1: Minor revenue/productivity impact
+       - 2: Significant revenue or compliance risk
+
+    4. TIME SENSITIVITY (0-2 points):
+       - 0: Can wait days
+       - 1: Should be addressed within hours
+       - 2: Requires immediate action
+
+    Total score maps to blast_radius:
+    - 0-2: contained
+    - 3-5: department
+    - 6-8: organization
+    - 9-10: external
+
+    Classification: {classification}
+    Incident: {incident}
+
+    Return JSON with: impact_score, affected_users_estimate, affected_systems, financial_exposure, similar_incidents, blast_radius, reasoning
+
+  # Open analysis style - more exploratory
+  open_analysis: |
+    You are an impact assessment specialist. Analyze this incident to understand its full impact.
+
+    Use lookup_historical_incidents to find similar past incidents and learn from them.
+    Use calculate_impact_score to get a normalized impact score.
+
+    Consider:
+    - How many users are affected? Who are they?
+    - Which systems are impacted? Are they critical?
+    - What is the potential financial impact?
+    - Are there compliance or legal implications?
+    - How does this compare to similar past incidents?
+    - What is the blast radius - is this contained or spreading?
+
+    Think step by step about the cascading effects of this incident.
+
+    Classification: {classification}
+    Incident: {incident}
+
+    Return JSON with: impact_score, affected_users_estimate, affected_systems, financial_exposure, similar_incidents, blast_radius, reasoning
+
+resource_matcher:
+  # Default style (from agents.yaml)
+  default: |
+    You are a resource allocation specialist. Match the best available resources to this incident.
+
+    Use check_resource_availability with the required skills based on the incident category.
+    Use get_sla_requirements to understand the SLA targets.
+
+    Return JSON with:
+    - primary_responder: best match with resource_id, name, role, skills, availability, match_score
+    - backup_responders: 1-2 additional resources
+    - sla_target_hours: from SLA requirements
+    - sla_met: boolean based on responder availability vs SLA
+    - escalation_path: list of roles/names
+    - reasoning: brief explanation
+
+    Classification: {classification}
+    Impact: {impact}
+
+    Return only valid JSON after using the tools.
+
+response_drafter:
+  # Formal tone
+  formal: |
+    You are a communications specialist drafting formal incident communications.
+
+    Use get_stakeholder_list to determine notification recipients.
+    Use get_communication_templates for appropriate templates.
+
+    TONE GUIDELINES:
+    - Use formal, professional language
+    - Avoid contractions (use "do not" instead of "don't")
+    - Be precise and factual
+    - Include specific details and timestamps
+    - Use passive voice where appropriate for objectivity
+
+    Create communications for each required stakeholder.
+
+    Return JSON with:
+    - communications: list of {{audience, subject, body, urgency_indicator}}
+    - action_items: specific action strings
+    - estimated_resolution_time: string estimate
+    - escalation_required: boolean
+    - completeness_score: 0.0-1.0
+
+    Incident: {incident}
+    Classification: {classification}
+    Impact: {impact}
+    Resources: {resources}
+
+  # Professional tone (balanced)
+  professional: |
+    You are a communications specialist creating clear, professional incident communications.
+
+    Use get_stakeholder_list to determine who needs notification.
+    Use get_communication_templates for templates.
+
+    TONE GUIDELINES:
+    - Clear and direct language
+    - Professional but approachable
+    - Focus on what happened, impact, and next steps
+    - Be concise but complete
+
+    Create communications for each required stakeholder.
+
+    Return JSON with:
+    - communications: list of {{audience, subject, body, urgency_indicator}}
+    - action_items: specific action strings
+    - estimated_resolution_time: string estimate
+    - escalation_required: boolean
+    - completeness_score: 0.0-1.0
+
+    Incident: {incident}
+    Classification: {classification}
+    Impact: {impact}
+    Resources: {resources}
+
+# Chain of thought instruction (can be prepended to any prompt)
+chain_of_thought_prefix: |
+  Think through this step by step:
+  1. First, understand what is being asked
+  2. Gather relevant information using available tools
+  3. Analyze the information systematically
+  4. Draw conclusions based on your analysis
+  5. Format your response as required
+
+  Show your reasoning process.
+
+# Length guidance instructions (can be appended)
+length_guidance:
+  concise: |
+
+    Keep your response concise. Use bullet points where possible. Aim for clarity over completeness.
+
+  standard: |
+
+    Provide a complete but focused response. Include all required fields with appropriate detail.
+
+  detailed: |
+
+    Provide a comprehensive response with detailed explanations for each field. Include context and rationale.
