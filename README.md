@@ -87,3 +87,55 @@ Configurations are saved to the project dataset with timestamps for reproducibil
     ├── energy.csv
     └── public_sector.csv
 ```
+
+## Experimentation
+
+### Judge Optimization
+
+Optimize LLM-as-Judge configurations to maximize agreement with human ground truth labels.
+
+```bash
+python scripts/run_judge_experiment.py --vertical healthcare --submit-job
+```
+
+Tests combinations of model, temperature, prompting style, and scale to find optimal judge configurations. Results are saved to `configs/judges.yaml` and logged to MLflow.
+
+### Local Model Optimization
+
+Optimize a locally-hosted model (Qwen 2.5 3B) against an API baseline (GPT-4o-mini).
+
+```bash
+python scripts/run_local_optimization.py --vertical healthcare --submit-job
+```
+
+**Approach:**
+
+1. **Establish Baseline** — Run GPT-4o-mini with known-good configurations (single run per agent, not full grid). This provides a quality benchmark without redundant API calls.
+
+2. **Grid Search Local Model** — Run temperature sweeps only for the local Qwen model to find optimal settings per agent type.
+
+3. **Compare and Recommend** — Generate recommendations based on quality/latency tradeoffs:
+   - Use local model if quality is within 10% of baseline AND latency is 2x+ faster
+   - Otherwise recommend API model for that agent
+
+**Agent-Specific Temperature Tuning:**
+
+| Agent | Baseline (API) | Local Search Range | Rationale |
+|-------|---------------|-------------------|-----------|
+| Classifier | 0.2 | 0.1-0.3 | Low temperature for consistent categorization |
+| ImpactAssessor | 0.3 | 0.2-0.4 | Medium for reasoning exploration |
+| ResourceMatcher | 0.1 | 0.0-0.2 | Low for tool call precision |
+| ResponseDrafter | 0.6 | 0.5-0.7 | Higher for natural language variation |
+
+Note: Agent temperatures differ from judge temperatures (typically 0.0) because agents require more diverse outputs while judges need maximum consistency.
+
+**Outputs:**
+- MLflow experiment: `agent-optimization-{vertical}-{username}`
+- Configuration: `configs/agents.yaml` (under `optimized_agents`)
+- Report: `results/local_optimization_{vertical}_{timestamp}.txt`
+
+**Options:**
+- `--baseline-only` — Run only the API baseline
+- `--local-only` — Skip baseline (assumes previous baseline exists)
+- `--submit-job` — Submit final config as Domino Job for registration
+- `-n` — Number of incidents to evaluate (default: 5)
