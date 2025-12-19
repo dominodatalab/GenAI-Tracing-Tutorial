@@ -1,1130 +1,1003 @@
-# Ground Truth Labels for Judge Validation
-# Simulated human expert labels for incident classification and triage evaluation
-# 
-# Category definitions:
-#   - security: Unauthorized access, data exposure, malware, vulnerabilities, breaches
-#   - performance: Slowdowns, timeouts, resource exhaustion, outages, degraded service
-#   - access: Login failures, permission errors, account issues (NOT security breaches)
-#   - compliance: Policy violations, audit findings, regulatory issues, data governance
-#   - operational: Process failures, data quality issues, integration problems
-#   - infrastructure: Hardware, network, facilities, physical systems
-#
-# Urgency definitions:
-#   - critical: Immediate action required, production down, safety risk, active breach
-#   - high: Same-day resolution needed, significant business impact
-#   - medium: This week, workaround exists, limited impact
-#   - low: Backlog, cosmetic, minor inconvenience
-
----
-
-# =============================================================================
-# PUBLIC SECTOR TICKETS
-# =============================================================================
-
 public_sector:
-  - ticket_id: GOV-2024-001
-    description: "911 dispatch system experiencing 30-second delays in call routing. Emergency response times potentially affected."
-    
-    # Expected agent outputs
-    expected_classification:
-      category: performance
-      urgency: critical
-      
-    # Human judgment of what a good response looks like
-    human_labels:
-      category_correct_reasoning: "System delays affecting functionality = performance issue. Not a security breach or access problem."
-      urgency_correct_reasoning: "911 system delays directly impact life safety. Any delay in emergency response is critical."
-      ideal_impact_assessment:
-        affected_users: "All emergency callers in service area"
-        business_impact: "Life safety risk, potential regulatory liability"
-        scope: "Regional emergency services"
-      ideal_team_assignment: "Critical Infrastructure Team"
-      ideal_sla_hours: 1
-      
-    # Judge evaluation criteria
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must identify life safety implications
-      response_appropriateness: 3  # Must prioritize and escalate immediately
-      
-    notes: "Clear-cut critical. Any model should get this right."
-    difficulty: easy
-
-  - ticket_id: GOV-2024-002
-    description: "DMV appointment scheduling portal crashed under load. 50,000 users attempting to book Real ID appointments."
-    
-    expected_classification:
-      category: performance
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "System crash under load is performance/capacity issue."
-      urgency_correct_reasoning: "High impact (50K users) but not life safety. Same-day priority."
-      ideal_impact_assessment:
-        affected_users: "50,000+ citizens"
-        business_impact: "Service disruption, public frustration, potential missed deadlines"
-        scope: "State DMV services"
-      ideal_team_assignment: "Web Infrastructure Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3
-      response_appropriateness: 3
-      
-    notes: "Scale is important context for urgency."
-    difficulty: easy
-
-  - ticket_id: GOV-2024-003
-    description: "Property tax payment website rejecting credit cards. Payment deadline is tomorrow. Citizens calling in frustrated."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Payment processing failure is operational/integration issue, not performance (site is up)."
-      urgency_correct_reasoning: "Deadline tomorrow creates time pressure. High but not critical."
-      ideal_impact_assessment:
-        affected_users: "All citizens attempting online tax payment"
-        business_impact: "Revenue collection risk, citizen penalties, call center overload"
-        scope: "County tax services"
-      ideal_team_assignment: "Payment Systems Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2  # Deadline context is important
-      response_appropriateness: 3
-      
-    notes: "Deadline context should influence urgency assessment."
-    difficulty: medium
-
-  - ticket_id: GOV-2024-004
-    description: "Voter registration database sync failed between state and county systems. 15 counties showing outdated rolls."
-    
-    expected_classification:
-      category: operational
-      urgency: high  # Could be critical depending on proximity to election
-      
-    human_labels:
-      category_correct_reasoning: "Database sync failure is operational/data integrity issue."
-      urgency_correct_reasoning: "Election integrity concern. Would be critical if near election day."
-      ideal_impact_assessment:
-        affected_users: "Voters in 15 counties"
-        business_impact: "Election integrity, potential disenfranchisement"
-        scope: "Multi-county state systems"
-      ideal_team_assignment: "Elections IT Team"
-      ideal_sla_hours: 8
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true  # Accept high or critical
-      reasoning_quality: 3  # Should note election sensitivity
-      response_appropriateness: 2
-      
-    notes: "Context-dependent urgency. Model should note election timing matters."
-    difficulty: medium
-
-  - ticket_id: GOV-2024-005
-    description: "Court case management system search function returning incomplete results. Attorneys cannot find recent filings."
-    
-    expected_classification:
-      category: performance
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Search returning incomplete results is performance/functionality issue."
-      urgency_correct_reasoning: "Important but not blocking all work. Attorneys can use workarounds."
-      ideal_impact_assessment:
-        affected_users: "Attorneys, court staff"
-        business_impact: "Workflow inefficiency, potential missed deadlines"
-        scope: "Court system users"
-      ideal_team_assignment: "Applications Team"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Degraded functionality, not complete outage."
-    difficulty: easy
-
-  - ticket_id: GOV-2024-006
-    description: "Public transit real-time arrival signs displaying wrong information citywide. Bus tracking GPS feed corrupted."
-    
-    expected_classification:
-      category: operational
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Data feed corruption is operational/data quality issue."
-      urgency_correct_reasoning: "Inconvenient but buses still running. Public can use other info sources."
-      ideal_impact_assessment:
-        affected_users: "Transit riders citywide"
-        business_impact: "Rider frustration, potential missed buses"
-        scope: "City transit system"
-      ideal_team_assignment: "Transit IT Team"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Service still running, just information is wrong."
-    difficulty: easy
-
-  - ticket_id: GOV-2024-007
-    description: "Unemployment claims portal unable to process new applications. Error occurs at identity verification step."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Identity verification integration failure is operational issue."
-      urgency_correct_reasoning: "Blocks all new claims. Economic hardship for applicants."
-      ideal_impact_assessment:
-        affected_users: "All new unemployment applicants"
-        business_impact: "Citizens unable to file claims, potential legal liability"
-        scope: "State unemployment services"
-      ideal_team_assignment: "Benefits Systems Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Should recognize human impact
-      response_appropriateness: 3
-      
-    notes: "Complete block on critical government service."
-    difficulty: easy
-
-  - ticket_id: GOV-2024-008
-    description: "Building permit system allowing duplicate submissions. Same permit approved and billed twice to applicants."
-    
-    expected_classification:
-      category: operational
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Logic error causing duplicates is operational/application defect."
-      urgency_correct_reasoning: "Needs fixing but can refund/correct. Not blocking service."
-      ideal_impact_assessment:
-        affected_users: "Permit applicants"
-        business_impact: "Double billing, refund processing, data cleanup"
-        scope: "Permits office"
-      ideal_team_assignment: "Applications Team"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Data quality issue with workaround (refunds)."
-    difficulty: easy
-
-  - ticket_id: GOV-2024-009
-    description: "Police body camera upload system backlogged. 72-hour retention policy at risk for oldest footage."
-    
-    expected_classification:
-      category: compliance
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Retention policy at risk is compliance/legal issue."
-      urgency_correct_reasoning: "Evidence retention is legal requirement. Time-bounded risk."
-      ideal_impact_assessment:
-        affected_users: "Police department, legal teams"
-        business_impact: "Potential evidence loss, legal liability"
-        scope: "Police department evidence management"
-      ideal_team_assignment: "Evidence Systems Team"
-      ideal_sla_hours: 8
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must identify compliance risk
-      response_appropriateness: 3
-      
-    notes: "Compliance category due to retention policy. Time-bounded urgency."
-    difficulty: medium
-
-  - ticket_id: GOV-2024-010
-    description: "State data center cooling failure in Zone B. Servers throttling to prevent overheating. Multiple agencies affected."
-    
-    expected_classification:
-      category: infrastructure
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Cooling failure is infrastructure/facilities issue."
-      urgency_correct_reasoning: "Hardware damage risk, multiple agencies down. Critical."
-      ideal_impact_assessment:
-        affected_users: "Multiple state agencies"
-        business_impact: "Potential hardware damage, multi-agency outage"
-        scope: "State data center"
-      ideal_team_assignment: "Data Center Operations"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3
-      response_appropriateness: 3
-      
-    notes: "Infrastructure with cascading impact."
-    difficulty: easy
-
-
-# =============================================================================
-# HEALTHCARE TICKETS
-# =============================================================================
-
+- ticket_id: GOV-2024-001
+  description: 911 dispatch system experiencing 30-second delays in call routing. Emergency response times potentially affected.
+  expected_classification:
+    category: performance
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: System delays affecting functionality = performance issue. Not a security breach or access
+      problem.
+    urgency_correct_reasoning: 911 system delays directly impact life safety. Any delay in emergency response is critical.
+    ideal_impact_assessment:
+      affected_users: All emergency callers in service area
+      business_impact: Life safety risk, potential regulatory liability
+      scope: Regional emergency services
+    ideal_team_assignment: Critical Infrastructure Team
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Clear-cut critical. Any model should get this right.
+  difficulty: easy
+- ticket_id: GOV-2024-002
+  description: DMV appointment scheduling portal crashed under load. 50,000 users attempting to book Real ID appointments.
+  expected_classification:
+    category: performance
+    urgency: high
+  human_labels:
+    category_correct_reasoning: System crash under load is performance/capacity issue.
+    urgency_correct_reasoning: High impact (50K users) but not life safety. Same-day priority.
+    ideal_impact_assessment:
+      affected_users: 50,000+ citizens
+      business_impact: Service disruption, public frustration, potential missed deadlines
+      scope: State DMV services
+    ideal_team_assignment: Web Infrastructure Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Scale is important context for urgency.
+  difficulty: easy
+- ticket_id: GOV-2024-003
+  description: Property tax payment website rejecting credit cards. Payment deadline is tomorrow. Citizens calling in frustrated.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Payment processing failure is operational/integration issue, not performance (site is up).
+    urgency_correct_reasoning: Deadline tomorrow creates time pressure. High but not critical.
+    ideal_impact_assessment:
+      affected_users: All citizens attempting online tax payment
+      business_impact: Revenue collection risk, citizen penalties, call center overload
+      scope: County tax services
+    ideal_team_assignment: Payment Systems Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Deadline context should influence urgency assessment.
+  difficulty: medium
+- ticket_id: GOV-2024-004
+  description: Voter registration database sync failed between state and county systems. 15 counties showing outdated rolls.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Database sync failure is operational/data integrity issue.
+    urgency_correct_reasoning: Election integrity concern. Would be critical if near election day.
+    ideal_impact_assessment:
+      affected_users: Voters in 15 counties
+      business_impact: Election integrity, potential disenfranchisement
+      scope: Multi-county state systems
+    ideal_team_assignment: Elections IT Team
+    ideal_sla_hours: 8
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 2
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Context-dependent urgency. Model should note election timing matters.
+  difficulty: medium
+- ticket_id: GOV-2024-005
+  description: Court case management system search function returning incomplete results. Attorneys cannot find recent filings.
+  expected_classification:
+    category: performance
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Search returning incomplete results is performance/functionality issue.
+    urgency_correct_reasoning: Important but not blocking all work. Attorneys can use workarounds.
+    ideal_impact_assessment:
+      affected_users: Attorneys, court staff
+      business_impact: Workflow inefficiency, potential missed deadlines
+      scope: Court system users
+    ideal_team_assignment: Applications Team
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Degraded functionality, not complete outage.
+  difficulty: easy
+- ticket_id: GOV-2024-006
+  description: Public transit real-time arrival signs displaying wrong information citywide. Bus tracking GPS feed corrupted.
+  expected_classification:
+    category: operational
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Data feed corruption is operational/data quality issue.
+    urgency_correct_reasoning: Inconvenient but buses still running. Public can use other info sources.
+    ideal_impact_assessment:
+      affected_users: Transit riders citywide
+      business_impact: Rider frustration, potential missed buses
+      scope: City transit system
+    ideal_team_assignment: Transit IT Team
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Service still running, just information is wrong.
+  difficulty: easy
+- ticket_id: GOV-2024-007
+  description: Unemployment claims portal unable to process new applications. Error occurs at identity verification step.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Identity verification integration failure is operational issue.
+    urgency_correct_reasoning: Blocks all new claims. Economic hardship for applicants.
+    ideal_impact_assessment:
+      affected_users: All new unemployment applicants
+      business_impact: Citizens unable to file claims, potential legal liability
+      scope: State unemployment services
+    ideal_team_assignment: Benefits Systems Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Complete block on critical government service.
+  difficulty: easy
+- ticket_id: GOV-2024-008
+  description: Building permit system allowing duplicate submissions. Same permit approved and billed twice to applicants.
+  expected_classification:
+    category: operational
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Logic error causing duplicates is operational/application defect.
+    urgency_correct_reasoning: Needs fixing but can refund/correct. Not blocking service.
+    ideal_impact_assessment:
+      affected_users: Permit applicants
+      business_impact: Double billing, refund processing, data cleanup
+      scope: Permits office
+    ideal_team_assignment: Applications Team
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Data quality issue with workaround (refunds).
+  difficulty: easy
+- ticket_id: GOV-2024-009
+  description: Police body camera upload system backlogged. 72-hour retention policy at risk for oldest footage.
+  expected_classification:
+    category: compliance
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Retention policy at risk is compliance/legal issue.
+    urgency_correct_reasoning: Evidence retention is legal requirement. Time-bounded risk.
+    ideal_impact_assessment:
+      affected_users: Police department, legal teams
+      business_impact: Potential evidence loss, legal liability
+      scope: Police department evidence management
+    ideal_team_assignment: Evidence Systems Team
+    ideal_sla_hours: 8
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Compliance category due to retention policy. Time-bounded urgency.
+  difficulty: medium
+- ticket_id: GOV-2024-010
+  description: State data center cooling failure in Zone B. Servers throttling to prevent overheating. Multiple agencies affected.
+  expected_classification:
+    category: infrastructure
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Cooling failure is infrastructure/facilities issue.
+    urgency_correct_reasoning: Hardware damage risk, multiple agencies down. Critical.
+    ideal_impact_assessment:
+      affected_users: Multiple state agencies
+      business_impact: Potential hardware damage, multi-agency outage
+      scope: State data center
+    ideal_team_assignment: Data Center Operations
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Infrastructure with cascading impact.
+  difficulty: easy
 healthcare:
-  - ticket_id: HLT-2024-001
-    description: "Electronic Health Records system unresponsive in Emergency Department. Clinicians unable to access patient histories. Reverting to paper."
-    
-    expected_classification:
-      category: performance
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "System unresponsive is performance issue."
-      urgency_correct_reasoning: "ED without patient histories is patient safety risk."
-      ideal_impact_assessment:
-        affected_users: "ED clinicians and patients"
-        business_impact: "Patient safety risk, care delays, documentation gaps"
-        scope: "Emergency Department"
-      ideal_team_assignment: "Clinical Systems - Priority 1"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must identify patient safety
-      response_appropriateness: 3
-      
-    notes: "Patient safety always critical."
-    difficulty: easy
-
-  - ticket_id: HLT-2024-002
-    description: "Lab results interface failing to transmit critical values to nursing stations. Delay in abnormal result notifications."
-    
-    expected_classification:
-      category: operational
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Interface/integration failure is operational issue."
-      urgency_correct_reasoning: "Critical lab values (K+, troponin, etc.) delay is life safety."
-      ideal_impact_assessment:
-        affected_users: "All inpatients with pending labs"
-        business_impact: "Delayed treatment for critical results, patient harm risk"
-        scope: "Hospital-wide lab integration"
-      ideal_team_assignment: "Integration Team - Priority 1"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must identify clinical implications
-      response_appropriateness: 3
-      
-    notes: "Critical values = critical urgency in healthcare."
-    difficulty: medium
-
-  - ticket_id: HLT-2024-003
-    description: "Patient portal showing incorrect appointment times after daylight saving time change. Multiple patients arriving at wrong times."
-    
-    expected_classification:
-      category: operational
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Timezone/data display issue is operational."
-      urgency_correct_reasoning: "Inconvenient but not safety issue. Staff can redirect patients."
-      ideal_impact_assessment:
-        affected_users: "Portal users with upcoming appointments"
-        business_impact: "Scheduling disruption, patient frustration"
-        scope: "Patient portal users"
-      ideal_team_assignment: "Patient Experience IT"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Common DST bug. Annoying but not dangerous."
-    difficulty: easy
-
-  - ticket_id: HLT-2024-004
-    description: "HIPAA audit log showing gaps in access tracking. 6-hour window of unlogged activity on radiology system."
-    
-    expected_classification:
-      category: compliance
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Audit log gaps are compliance/regulatory issue."
-      urgency_correct_reasoning: "HIPAA requirement. Must investigate but not blocking care."
-      ideal_impact_assessment:
-        affected_users: "Compliance team, potentially affected patients"
-        business_impact: "Regulatory risk, potential breach investigation needed"
-        scope: "Radiology system audit trail"
-      ideal_team_assignment: "Security & Compliance Team"
-      ideal_sla_hours: 8
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must identify HIPAA implications
-      response_appropriateness: 2
-      
-    notes: "Compliance issue, not security (no breach indicated yet)."
-    difficulty: medium
-
-  - ticket_id: HLT-2024-005
-    description: "Medication dispensing cabinets in ICU reporting connectivity issues. Nurses using override codes for urgent medications."
-    
-    expected_classification:
-      category: infrastructure
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Connectivity issues are infrastructure/network."
-      urgency_correct_reasoning: "ICU medication access is patient safety. Override use is risky."
-      ideal_impact_assessment:
-        affected_users: "ICU patients and nursing staff"
-        business_impact: "Medication safety risk, audit trail gaps"
-        scope: "ICU medication dispensing"
-      ideal_team_assignment: "Biomedical IT - Priority 1"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must note override safety concern
-      response_appropriateness: 3
-      
-    notes: "ICU + medication = critical. Override codes bypass safety checks."
-    difficulty: medium
-
-  - ticket_id: HLT-2024-006
-    description: "Telehealth platform video quality degraded. Providers reporting pixelated video and audio dropouts during consultations."
-    
-    expected_classification:
-      category: performance
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Video quality degradation is performance issue."
-      urgency_correct_reasoning: "Degraded but functional. Can reschedule or use phone."
-      ideal_impact_assessment:
-        affected_users: "Telehealth providers and patients"
-        business_impact: "Consultation quality, potential missed diagnoses"
-        scope: "Telehealth platform users"
-      ideal_team_assignment: "Telehealth Support Team"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Degraded, not down. Workarounds exist."
-    difficulty: easy
-
-  - ticket_id: HLT-2024-007
-    description: "Billing system rejecting Medicare claims with new 2024 codes. 450 claims pending manual review."
-    
-    expected_classification:
-      category: operational
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Claim rejection is operational/configuration issue."
-      urgency_correct_reasoning: "Revenue impact but not care-blocking. Can resubmit."
-      ideal_impact_assessment:
-        affected_users: "Revenue cycle, Medicare patients"
-        business_impact: "Revenue delay, administrative burden"
-        scope: "Medicare billing"
-      ideal_team_assignment: "Revenue Cycle IT"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Financial impact but not clinical."
-    difficulty: easy
-
-  - ticket_id: HLT-2024-008
-    description: "Surgical scheduling system double-booked OR-3 for tomorrow. Two cardiac procedures scheduled at same time."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Scheduling logic error is operational issue."
-      urgency_correct_reasoning: "Tomorrow deadline, cardiac surgery. Needs immediate resolution."
-      ideal_impact_assessment:
-        affected_users: "Two patients, surgical teams, OR staff"
-        business_impact: "One patient must be rescheduled, potential clinical risk"
-        scope: "Operating room scheduling"
-      ideal_team_assignment: "Clinical Applications Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Time-bounded, clinical impact
-      response_appropriateness: 3
-      
-    notes: "Time-bounded with clinical implications."
-    difficulty: medium
-
-  - ticket_id: HLT-2024-009
-    description: "Blood bank inventory system not syncing with regional donation centers. Current stock levels may be inaccurate."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Sync failure is operational/integration issue."
-      urgency_correct_reasoning: "Blood supply accuracy is safety issue. Could affect transfusions."
-      ideal_impact_assessment:
-        affected_users: "Blood bank, transfusion recipients"
-        business_impact: "Potential transfusion delays, waste, or shortages"
-        scope: "Regional blood supply network"
-      ideal_team_assignment: "Lab Systems Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Blood supply = safety critical
-      response_appropriateness: 3
-      
-    notes: "Blood supply accuracy is patient safety issue."
-    difficulty: medium
-
-  - ticket_id: HLT-2024-010
-    description: "Ransomware indicators detected on imaging workstation. Machine isolated. Potential lateral movement being investigated."
-    
-    expected_classification:
-      category: security
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Ransomware is clear security incident."
-      urgency_correct_reasoning: "Active threat, potential spread. Critical response needed."
-      ideal_impact_assessment:
-        affected_users: "All hospital systems potentially"
-        business_impact: "Potential hospital-wide encryption, patient data at risk"
-        scope: "Hospital network"
-      ideal_team_assignment: "Security Incident Response Team"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize active threat
-      response_appropriateness: 3
-      
-    notes: "Textbook security critical."
-    difficulty: easy
-
-
-# =============================================================================
-# FINANCIAL SERVICES TICKETS
-# =============================================================================
-
+- ticket_id: HLT-2024-001
+  description: Electronic Health Records system unresponsive in Emergency Department. Clinicians unable to access patient
+    histories. Reverting to paper.
+  expected_classification:
+    category: performance
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: System unresponsive is performance issue.
+    urgency_correct_reasoning: ED without patient histories is patient safety risk.
+    ideal_impact_assessment:
+      affected_users: ED clinicians and patients
+      business_impact: Patient safety risk, care delays, documentation gaps
+      scope: Emergency Department
+    ideal_team_assignment: Clinical Systems - Priority 1
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Patient safety always critical.
+  difficulty: easy
+- ticket_id: HLT-2024-002
+  description: Lab results interface failing to transmit critical values to nursing stations. Delay in abnormal result notifications.
+  expected_classification:
+    category: operational
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Interface/integration failure is operational issue.
+    urgency_correct_reasoning: Critical lab values (K+, troponin, etc.) delay is life safety.
+    ideal_impact_assessment:
+      affected_users: All inpatients with pending labs
+      business_impact: Delayed treatment for critical results, patient harm risk
+      scope: Hospital-wide lab integration
+    ideal_team_assignment: Integration Team - Priority 1
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Critical values = critical urgency in healthcare.
+  difficulty: medium
+- ticket_id: HLT-2024-003
+  description: Patient portal showing incorrect appointment times after daylight saving time change. Multiple patients arriving
+    at wrong times.
+  expected_classification:
+    category: operational
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Timezone/data display issue is operational.
+    urgency_correct_reasoning: Inconvenient but not safety issue. Staff can redirect patients.
+    ideal_impact_assessment:
+      affected_users: Portal users with upcoming appointments
+      business_impact: Scheduling disruption, patient frustration
+      scope: Patient portal users
+    ideal_team_assignment: Patient Experience IT
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Common DST bug. Annoying but not dangerous.
+  difficulty: easy
+- ticket_id: HLT-2024-004
+  description: HIPAA audit log showing gaps in access tracking. 6-hour window of unlogged activity on radiology system.
+  expected_classification:
+    category: compliance
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Audit log gaps are compliance/regulatory issue.
+    urgency_correct_reasoning: HIPAA requirement. Must investigate but not blocking care.
+    ideal_impact_assessment:
+      affected_users: Compliance team, potentially affected patients
+      business_impact: Regulatory risk, potential breach investigation needed
+      scope: Radiology system audit trail
+    ideal_team_assignment: Security & Compliance Team
+    ideal_sla_hours: 8
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 2
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Compliance issue, not security (no breach indicated yet).
+  difficulty: medium
+- ticket_id: HLT-2024-005
+  description: Medication dispensing cabinets in ICU reporting connectivity issues. Nurses using override codes for urgent
+    medications.
+  expected_classification:
+    category: infrastructure
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Connectivity issues are infrastructure/network.
+    urgency_correct_reasoning: ICU medication access is patient safety. Override use is risky.
+    ideal_impact_assessment:
+      affected_users: ICU patients and nursing staff
+      business_impact: Medication safety risk, audit trail gaps
+      scope: ICU medication dispensing
+    ideal_team_assignment: Biomedical IT - Priority 1
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: ICU + medication = critical. Override codes bypass safety checks.
+  difficulty: medium
+- ticket_id: HLT-2024-006
+  description: Telehealth platform video quality degraded. Providers reporting pixelated video and audio dropouts during consultations.
+  expected_classification:
+    category: performance
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Video quality degradation is performance issue.
+    urgency_correct_reasoning: Degraded but functional. Can reschedule or use phone.
+    ideal_impact_assessment:
+      affected_users: Telehealth providers and patients
+      business_impact: Consultation quality, potential missed diagnoses
+      scope: Telehealth platform users
+    ideal_team_assignment: Telehealth Support Team
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Degraded, not down. Workarounds exist.
+  difficulty: easy
+- ticket_id: HLT-2024-007
+  description: Billing system rejecting Medicare claims with new 2024 codes. 450 claims pending manual review.
+  expected_classification:
+    category: operational
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Claim rejection is operational/configuration issue.
+    urgency_correct_reasoning: Revenue impact but not care-blocking. Can resubmit.
+    ideal_impact_assessment:
+      affected_users: Revenue cycle, Medicare patients
+      business_impact: Revenue delay, administrative burden
+      scope: Medicare billing
+    ideal_team_assignment: Revenue Cycle IT
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Financial impact but not clinical.
+  difficulty: easy
+- ticket_id: HLT-2024-008
+  description: Surgical scheduling system double-booked OR-3 for tomorrow. Two cardiac procedures scheduled at same time.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Scheduling logic error is operational issue.
+    urgency_correct_reasoning: Tomorrow deadline, cardiac surgery. Needs immediate resolution.
+    ideal_impact_assessment:
+      affected_users: Two patients, surgical teams, OR staff
+      business_impact: One patient must be rescheduled, potential clinical risk
+      scope: Operating room scheduling
+    ideal_team_assignment: Clinical Applications Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Time-bounded with clinical implications.
+  difficulty: medium
+- ticket_id: HLT-2024-009
+  description: Blood bank inventory system not syncing with regional donation centers. Current stock levels may be inaccurate.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Sync failure is operational/integration issue.
+    urgency_correct_reasoning: Blood supply accuracy is safety issue. Could affect transfusions.
+    ideal_impact_assessment:
+      affected_users: Blood bank, transfusion recipients
+      business_impact: Potential transfusion delays, waste, or shortages
+      scope: Regional blood supply network
+    ideal_team_assignment: Lab Systems Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Blood supply accuracy is patient safety issue.
+  difficulty: medium
+- ticket_id: HLT-2024-010
+  description: Ransomware indicators detected on imaging workstation. Machine isolated. Potential lateral movement being investigated.
+  expected_classification:
+    category: security
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Ransomware is clear security incident.
+    urgency_correct_reasoning: Active threat, potential spread. Critical response needed.
+    ideal_impact_assessment:
+      affected_users: All hospital systems potentially
+      business_impact: Potential hospital-wide encryption, patient data at risk
+      scope: Hospital network
+    ideal_team_assignment: Security Incident Response Team
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Textbook security critical.
+  difficulty: easy
 financial_services:
-  - ticket_id: FIN-2024-001
-    description: "Trading platform experiencing intermittent order failures. Approximately 15% of market orders failing with timeout errors. Affecting equities desk."
-    
-    expected_classification:
-      category: performance
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Order timeouts are performance issue."
-      urgency_correct_reasoning: "Trading failures = direct financial loss every minute."
-      ideal_impact_assessment:
-        affected_users: "Equities trading desk"
-        business_impact: "Direct P&L impact, client dissatisfaction, regulatory scrutiny"
-        scope: "Equities trading"
-      ideal_team_assignment: "Trading Systems - Priority 1"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3
-      response_appropriateness: 3
-      
-    notes: "Trading systems = critical in finance."
-    difficulty: easy
-
-  - ticket_id: FIN-2024-002
-    description: "Suspicious login attempts detected on wire transfer system. 47 failed attempts from multiple IPs targeting high-value accounts."
-    
-    expected_classification:
-      category: security
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Credential attack is security issue."
-      urgency_correct_reasoning: "Wire transfer targeting = potential major fraud."
-      ideal_impact_assessment:
-        affected_users: "High-value account holders"
-        business_impact: "Potential unauthorized transfers, fraud loss"
-        scope: "Wire transfer system"
-      ideal_team_assignment: "Security Operations Center"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must identify attack pattern
-      response_appropriateness: 3
-      
-    notes: "Clear credential stuffing attack."
-    difficulty: easy
-
-  - ticket_id: FIN-2024-003
-    description: "End-of-day reconciliation report shows $2.3M discrepancy between trading ledger and settlement system."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Reconciliation discrepancy is operational/data issue."
-      urgency_correct_reasoning: "Large discrepancy needs investigation but may be data error."
-      ideal_impact_assessment:
-        affected_users: "Operations, finance, potentially clients"
-        business_impact: "Financial reporting accuracy, potential client impact"
-        scope: "Trading-settlement reconciliation"
-      ideal_team_assignment: "Operations Technology Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize financial materiality
-      response_appropriateness: 2
-      
-    notes: "Could be system issue or actual loss. Needs investigation."
-    difficulty: medium
-
-  - ticket_id: FIN-2024-004
-    description: "Customer mobile app crash rate spiked to 12% after latest deployment. Users unable to view account balances."
-    
-    expected_classification:
-      category: performance
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "App crashes are performance/stability issue."
-      urgency_correct_reasoning: "12% crash rate is severe but web/call center available."
-      ideal_impact_assessment:
-        affected_users: "12% of mobile app users"
-        business_impact: "Customer experience, potential account access concerns"
-        scope: "Mobile banking application"
-      ideal_team_assignment: "Mobile Development Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Rollback option likely exists."
-    difficulty: easy
-
-  - ticket_id: FIN-2024-005
-    description: "SWIFT message queue backlog growing. Currently 340 pending messages with oldest at 2 hours. International transfers delayed."
-    
-    expected_classification:
-      category: performance
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Queue backlog is performance/throughput issue."
-      urgency_correct_reasoning: "International transfers delayed but processing. High priority."
-      ideal_impact_assessment:
-        affected_users: "International transfer customers"
-        business_impact: "Settlement delays, potential penalties, customer complaints"
-        scope: "International wire transfers"
-      ideal_team_assignment: "Payments Infrastructure Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Delayed, not stopped. Time sensitivity matters."
-    difficulty: medium
-
-  - ticket_id: FIN-2024-006
-    description: "Fraud detection system generating excessive false positives. 300% increase in blocked legitimate transactions today."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Model/rule behavior is operational issue."
-      urgency_correct_reasoning: "Blocking legitimate business. Customer impact significant."
-      ideal_impact_assessment:
-        affected_users: "Customers with blocked transactions"
-        business_impact: "Customer friction, revenue loss, support volume"
-        scope: "Fraud detection across channels"
-      ideal_team_assignment: "Fraud Systems Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "False positives are business impact, not security improvement."
-    difficulty: medium
-
-  - ticket_id: FIN-2024-007
-    description: "Market data feed from Bloomberg showing stale prices for EMEA equities. Last update was 45 minutes ago."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Data feed staleness is operational/vendor issue."
-      urgency_correct_reasoning: "Stale prices affect trading decisions. During market hours = high."
-      ideal_impact_assessment:
-        affected_users: "EMEA trading desks"
-        business_impact: "Trading on stale data, potential losses"
-        scope: "EMEA market data"
-      ideal_team_assignment: "Market Data Team"
-      ideal_sla_hours: 2
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2  # Market hours context matters
-      response_appropriateness: 2
-      
-    notes: "Urgency depends on market hours."
-    difficulty: medium
-
-  - ticket_id: FIN-2024-008
-    description: "ATM network in midwest region offline. 127 ATMs unreachable. Vendor reports fiber cut during construction."
-    
-    expected_classification:
-      category: infrastructure
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Fiber cut is infrastructure/network issue."
-      urgency_correct_reasoning: "127 ATMs down is significant but regional. Other channels available."
-      ideal_impact_assessment:
-        affected_users: "Customers in midwest region"
-        business_impact: "Customer inconvenience, potential lost transactions"
-        scope: "Regional ATM network"
-      ideal_team_assignment: "Network Operations + Vendor"
-      ideal_sla_hours: 8
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "External cause (construction), vendor dependency."
-    difficulty: easy
-
-  - ticket_id: FIN-2024-009
-    description: "Regulatory report CCAR-2024-Q4 generation failed during stress test calculations. Submission deadline in 48 hours."
-    
-    expected_classification:
-      category: compliance
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Regulatory report is compliance issue."
-      urgency_correct_reasoning: "48-hour deadline for Fed submission. Time-bounded."
-      ideal_impact_assessment:
-        affected_users: "Risk management, regulatory reporting"
-        business_impact: "Regulatory penalty risk, reputational damage"
-        scope: "Regulatory reporting"
-      ideal_team_assignment: "Risk Analytics Team"
-      ideal_sla_hours: 8
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize regulatory implications
-      response_appropriateness: 2
-      
-    notes: "CCAR is critical regulatory submission."
-    difficulty: medium
-
-  - ticket_id: FIN-2024-010
-    description: "Customer PII potentially exposed via misconfigured API endpoint. Security team investigating scope of exposure."
-    
-    expected_classification:
-      category: security
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Data exposure is security incident."
-      urgency_correct_reasoning: "PII exposure = potential breach. Critical response."
-      ideal_impact_assessment:
-        affected_users: "Unknown number of customers"
-        business_impact: "Regulatory notification requirements, reputational damage, legal liability"
-        scope: "Customer data"
-      ideal_team_assignment: "Security Incident Response Team"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize breach implications
-      response_appropriateness: 3
-      
-    notes: "Potential breach = critical until scoped."
-    difficulty: easy
-
-
-# =============================================================================
-# ENERGY SECTOR TICKETS
-# =============================================================================
-
+- ticket_id: FIN-2024-001
+  description: Trading platform experiencing intermittent order failures. Approximately 15% of market orders failing with
+    timeout errors. Affecting equities desk.
+  expected_classification:
+    category: performance
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Order timeouts are performance issue.
+    urgency_correct_reasoning: Trading failures = direct financial loss every minute.
+    ideal_impact_assessment:
+      affected_users: Equities trading desk
+      business_impact: Direct P&L impact, client dissatisfaction, regulatory scrutiny
+      scope: Equities trading
+    ideal_team_assignment: Trading Systems - Priority 1
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Trading systems = critical in finance.
+  difficulty: easy
+- ticket_id: FIN-2024-002
+  description: Suspicious login attempts detected on wire transfer system. 47 failed attempts from multiple IPs targeting
+    high-value accounts.
+  expected_classification:
+    category: security
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Credential attack is security issue.
+    urgency_correct_reasoning: Wire transfer targeting = potential major fraud.
+    ideal_impact_assessment:
+      affected_users: High-value account holders
+      business_impact: Potential unauthorized transfers, fraud loss
+      scope: Wire transfer system
+    ideal_team_assignment: Security Operations Center
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Clear credential stuffing attack.
+  difficulty: easy
+- ticket_id: FIN-2024-003
+  description: End-of-day reconciliation report shows $2.3M discrepancy between trading ledger and settlement system.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Reconciliation discrepancy is operational/data issue.
+    urgency_correct_reasoning: Large discrepancy needs investigation but may be data error.
+    ideal_impact_assessment:
+      affected_users: Operations, finance, potentially clients
+      business_impact: Financial reporting accuracy, potential client impact
+      scope: Trading-settlement reconciliation
+    ideal_team_assignment: Operations Technology Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 2
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Could be system issue or actual loss. Needs investigation.
+  difficulty: medium
+- ticket_id: FIN-2024-004
+  description: Customer mobile app crash rate spiked to 12% after latest deployment. Users unable to view account balances.
+  expected_classification:
+    category: performance
+    urgency: high
+  human_labels:
+    category_correct_reasoning: App crashes are performance/stability issue.
+    urgency_correct_reasoning: 12% crash rate is severe but web/call center available.
+    ideal_impact_assessment:
+      affected_users: 12% of mobile app users
+      business_impact: Customer experience, potential account access concerns
+      scope: Mobile banking application
+    ideal_team_assignment: Mobile Development Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Rollback option likely exists.
+  difficulty: easy
+- ticket_id: FIN-2024-005
+  description: SWIFT message queue backlog growing. Currently 340 pending messages with oldest at 2 hours. International transfers
+    delayed.
+  expected_classification:
+    category: performance
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Queue backlog is performance/throughput issue.
+    urgency_correct_reasoning: International transfers delayed but processing. High priority.
+    ideal_impact_assessment:
+      affected_users: International transfer customers
+      business_impact: Settlement delays, potential penalties, customer complaints
+      scope: International wire transfers
+    ideal_team_assignment: Payments Infrastructure Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Delayed, not stopped. Time sensitivity matters.
+  difficulty: medium
+- ticket_id: FIN-2024-006
+  description: Fraud detection system generating excessive false positives. 300% increase in blocked legitimate transactions
+    today.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Model/rule behavior is operational issue.
+    urgency_correct_reasoning: Blocking legitimate business. Customer impact significant.
+    ideal_impact_assessment:
+      affected_users: Customers with blocked transactions
+      business_impact: Customer friction, revenue loss, support volume
+      scope: Fraud detection across channels
+    ideal_team_assignment: Fraud Systems Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: False positives are business impact, not security improvement.
+  difficulty: medium
+- ticket_id: FIN-2024-007
+  description: Market data feed from Bloomberg showing stale prices for EMEA equities. Last update was 45 minutes ago.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Data feed staleness is operational/vendor issue.
+    urgency_correct_reasoning: Stale prices affect trading decisions. During market hours = high.
+    ideal_impact_assessment:
+      affected_users: EMEA trading desks
+      business_impact: Trading on stale data, potential losses
+      scope: EMEA market data
+    ideal_team_assignment: Market Data Team
+    ideal_sla_hours: 2
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Urgency depends on market hours.
+  difficulty: medium
+- ticket_id: FIN-2024-008
+  description: ATM network in midwest region offline. 127 ATMs unreachable. Vendor reports fiber cut during construction.
+  expected_classification:
+    category: infrastructure
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Fiber cut is infrastructure/network issue.
+    urgency_correct_reasoning: 127 ATMs down is significant but regional. Other channels available.
+    ideal_impact_assessment:
+      affected_users: Customers in midwest region
+      business_impact: Customer inconvenience, potential lost transactions
+      scope: Regional ATM network
+    ideal_team_assignment: Network Operations + Vendor
+    ideal_sla_hours: 8
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: External cause (construction), vendor dependency.
+  difficulty: easy
+- ticket_id: FIN-2024-009
+  description: Regulatory report CCAR-2024-Q4 generation failed during stress test calculations. Submission deadline in 48
+    hours.
+  expected_classification:
+    category: compliance
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Regulatory report is compliance issue.
+    urgency_correct_reasoning: 48-hour deadline for Fed submission. Time-bounded.
+    ideal_impact_assessment:
+      affected_users: Risk management, regulatory reporting
+      business_impact: Regulatory penalty risk, reputational damage
+      scope: Regulatory reporting
+    ideal_team_assignment: Risk Analytics Team
+    ideal_sla_hours: 8
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 2
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: CCAR is critical regulatory submission.
+  difficulty: medium
+- ticket_id: FIN-2024-010
+  description: Customer PII potentially exposed via misconfigured API endpoint. Security team investigating scope of exposure.
+  expected_classification:
+    category: security
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Data exposure is security incident.
+    urgency_correct_reasoning: PII exposure = potential breach. Critical response.
+    ideal_impact_assessment:
+      affected_users: Unknown number of customers
+      business_impact: Regulatory notification requirements, reputational damage, legal liability
+      scope: Customer data
+    ideal_team_assignment: Security Incident Response Team
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Potential breach = critical until scoped.
+  difficulty: easy
 energy:
-  - ticket_id: NRG-2024-001
-    description: "SCADA system lost communication with 12 substations in northeast grid. Operators flying blind on load balancing."
-    
-    expected_classification:
-      category: infrastructure
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "SCADA communication loss is infrastructure/control systems."
-      urgency_correct_reasoning: "Grid visibility loss is safety and reliability critical."
-      ideal_impact_assessment:
-        affected_users: "Grid operators, all customers in region"
-        business_impact: "Grid stability risk, potential outages, safety hazard"
-        scope: "Northeast grid region"
-      ideal_team_assignment: "Control Systems - Emergency"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize grid safety implications
-      response_appropriateness: 3
-      
-    notes: "SCADA visibility loss is always critical in energy."
-    difficulty: easy
-
-  - ticket_id: NRG-2024-002
-    description: "Wind farm turbine management system showing erratic readings. 23 turbines reporting impossible wind speeds."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Sensor/data quality issue is operational."
-      urgency_correct_reasoning: "False readings could mask real problems. Needs investigation."
-      ideal_impact_assessment:
-        affected_users: "Wind farm operators"
-        business_impact: "Potential missed equipment issues, generation uncertainty"
-        scope: "Wind farm operations"
-      ideal_team_assignment: "Renewable Operations Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Data quality issue, turbines likely still operating."
-    difficulty: medium
-
-  - ticket_id: NRG-2024-003
-    description: "Natural gas pipeline pressure sensors offline along 40-mile segment. Manual readings required until restored."
-    
-    expected_classification:
-      category: infrastructure
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Pipeline sensors are infrastructure/safety systems."
-      urgency_correct_reasoning: "Pipeline monitoring is safety-critical. No visibility = critical."
-      ideal_impact_assessment:
-        affected_users: "Pipeline operations, downstream customers"
-        business_impact: "Safety risk, potential supply disruption"
-        scope: "40-mile pipeline segment"
-      ideal_team_assignment: "Pipeline Operations - Emergency"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize pipeline safety
-      response_appropriateness: 3
-      
-    notes: "Pipeline safety monitoring always critical."
-    difficulty: easy
-
-  - ticket_id: NRG-2024-004
-    description: "Customer billing system calculated negative charges for 12,000 accounts. Bills already sent to print vendor."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Billing calculation error is operational issue."
-      urgency_correct_reasoning: "Bills in print = time pressure to stop/correct."
-      ideal_impact_assessment:
-        affected_users: "12,000 customers"
-        business_impact: "Customer confusion, revenue impact, correction costs"
-        scope: "Billing system"
-      ideal_team_assignment: "Revenue Systems Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Time pressure due to print vendor."
-    difficulty: easy
-
-  - ticket_id: NRG-2024-005
-    description: "Grid frequency deviation alert triggered. Automatic load shedding may activate if not stabilized within 10 minutes."
-    
-    expected_classification:
-      category: infrastructure
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Grid frequency is infrastructure/operations."
-      urgency_correct_reasoning: "10-minute window before automatic action. Immediate response."
-      ideal_impact_assessment:
-        affected_users: "All grid customers"
-        business_impact: "Potential widespread outage, equipment damage"
-        scope: "Entire grid"
-      ideal_team_assignment: "Grid Operations - Emergency"
-      ideal_sla_hours: 0.17  # 10 minutes
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize immediacy
-      response_appropriateness: 3
-      
-    notes: "Time-bounded emergency. Model must recognize 10-minute window."
-    difficulty: easy
-
-  - ticket_id: NRG-2024-006
-    description: "Smart meter data collection failed for overnight batch. 2.1 million meters missing consumption data."
-    
-    expected_classification:
-      category: operational
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Batch data collection failure is operational."
-      urgency_correct_reasoning: "Missing data can be estimated/collected later. Not blocking."
-      ideal_impact_assessment:
-        affected_users: "2.1 million metered customers"
-        business_impact: "Billing estimation required, data quality gap"
-        scope: "Meter data management"
-      ideal_team_assignment: "Meter Operations Team"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Large scale but recoverable. Can re-collect."
-    difficulty: easy
-
-  - ticket_id: NRG-2024-007
-    description: "Outage management system map display showing incorrect restoration times. Customer-facing app affected."
-    
-    expected_classification:
-      category: operational
-      urgency: medium
-      
-    human_labels:
-      category_correct_reasoning: "Display/data issue is operational."
-      urgency_correct_reasoning: "Customer communication issue, not operational impact."
-      ideal_impact_assessment:
-        affected_users: "Customers checking outage status"
-        business_impact: "Customer frustration, increased call volume"
-        scope: "Outage communication"
-      ideal_team_assignment: "Customer Systems Team"
-      ideal_sla_hours: 24
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Customer experience, not operations impact."
-    difficulty: easy
-
-  - ticket_id: NRG-2024-008
-    description: "Solar farm inverters firmware update failed mid-deployment. 30% of inverters in safe mode producing no power."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Firmware deployment failure is operational."
-      urgency_correct_reasoning: "30% generation loss is significant revenue and grid impact."
-      ideal_impact_assessment:
-        affected_users: "Grid operations, solar farm revenue"
-        business_impact: "Lost generation, revenue loss, grid supply reduction"
-        scope: "Solar farm"
-      ideal_team_assignment: "Renewable Operations Team"
-      ideal_sla_hours: 4
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Significant generation loss but safe mode = no safety risk."
-    difficulty: medium
-
-  - ticket_id: NRG-2024-009
-    description: "Trading desk lost access to ISO real-time pricing data. Unable to optimize dispatch for economic signals."
-    
-    expected_classification:
-      category: operational
-      urgency: high
-      
-    human_labels:
-      category_correct_reasoning: "Data feed loss is operational issue."
-      urgency_correct_reasoning: "Trading optimization affected. Direct financial impact."
-      ideal_impact_assessment:
-        affected_users: "Energy trading desk"
-        business_impact: "Sub-optimal dispatch, potential financial loss"
-        scope: "Energy trading"
-      ideal_team_assignment: "Market Systems Team"
-      ideal_sla_hours: 2
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 2
-      response_appropriateness: 2
-      
-    notes: "Financial optimization impact during trading hours."
-    difficulty: medium
-
-  - ticket_id: NRG-2024-010
-    description: "Physical security system at nuclear facility reporting camera failures in restricted zone. NRC notification may be required."
-    
-    expected_classification:
-      category: security
-      urgency: critical
-      
-    human_labels:
-      category_correct_reasoning: "Physical security at nuclear facility is security issue."
-      urgency_correct_reasoning: "Nuclear facility security gap = immediate response + regulatory."
-      ideal_impact_assessment:
-        affected_users: "Facility security, NRC"
-        business_impact: "Regulatory compliance, facility security"
-        scope: "Nuclear facility security"
-      ideal_team_assignment: "Nuclear Security Team"
-      ideal_sla_hours: 1
-      
-    evaluation_ground_truth:
-      category_correct: true
-      urgency_correct: true
-      reasoning_quality: 3  # Must recognize nuclear regulatory implications
-      response_appropriateness: 3
-      
-    notes: "Nuclear + security = always critical. NRC notification requirement."
-    difficulty: easy
-
-
-# =============================================================================
-# METADATA
-# =============================================================================
-
+- ticket_id: NRG-2024-001
+  description: SCADA system lost communication with 12 substations in northeast grid. Operators flying blind on load balancing.
+  expected_classification:
+    category: infrastructure
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: SCADA communication loss is infrastructure/control systems.
+    urgency_correct_reasoning: Grid visibility loss is safety and reliability critical.
+    ideal_impact_assessment:
+      affected_users: Grid operators, all customers in region
+      business_impact: Grid stability risk, potential outages, safety hazard
+      scope: Northeast grid region
+    ideal_team_assignment: Control Systems - Emergency
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: SCADA visibility loss is always critical in energy.
+  difficulty: easy
+- ticket_id: NRG-2024-002
+  description: Wind farm turbine management system showing erratic readings. 23 turbines reporting impossible wind speeds.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Sensor/data quality issue is operational.
+    urgency_correct_reasoning: False readings could mask real problems. Needs investigation.
+    ideal_impact_assessment:
+      affected_users: Wind farm operators
+      business_impact: Potential missed equipment issues, generation uncertainty
+      scope: Wind farm operations
+    ideal_team_assignment: Renewable Operations Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Data quality issue, turbines likely still operating.
+  difficulty: medium
+- ticket_id: NRG-2024-003
+  description: Natural gas pipeline pressure sensors offline along 40-mile segment. Manual readings required until restored.
+  expected_classification:
+    category: infrastructure
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Pipeline sensors are infrastructure/safety systems.
+    urgency_correct_reasoning: Pipeline monitoring is safety-critical. No visibility = critical.
+    ideal_impact_assessment:
+      affected_users: Pipeline operations, downstream customers
+      business_impact: Safety risk, potential supply disruption
+      scope: 40-mile pipeline segment
+    ideal_team_assignment: Pipeline Operations - Emergency
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Pipeline safety monitoring always critical.
+  difficulty: easy
+- ticket_id: NRG-2024-004
+  description: Customer billing system calculated negative charges for 12,000 accounts. Bills already sent to print vendor.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Billing calculation error is operational issue.
+    urgency_correct_reasoning: Bills in print = time pressure to stop/correct.
+    ideal_impact_assessment:
+      affected_users: 12,000 customers
+      business_impact: Customer confusion, revenue impact, correction costs
+      scope: Billing system
+    ideal_team_assignment: Revenue Systems Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Time pressure due to print vendor.
+  difficulty: easy
+- ticket_id: NRG-2024-005
+  description: Grid frequency deviation alert triggered. Automatic load shedding may activate if not stabilized within 10
+    minutes.
+  expected_classification:
+    category: infrastructure
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Grid frequency is infrastructure/operations.
+    urgency_correct_reasoning: 10-minute window before automatic action. Immediate response.
+    ideal_impact_assessment:
+      affected_users: All grid customers
+      business_impact: Potential widespread outage, equipment damage
+      scope: Entire grid
+    ideal_team_assignment: Grid Operations - Emergency
+    ideal_sla_hours: 0.17
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Time-bounded emergency. Model must recognize 10-minute window.
+  difficulty: easy
+- ticket_id: NRG-2024-006
+  description: Smart meter data collection failed for overnight batch. 2.1 million meters missing consumption data.
+  expected_classification:
+    category: operational
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Batch data collection failure is operational.
+    urgency_correct_reasoning: Missing data can be estimated/collected later. Not blocking.
+    ideal_impact_assessment:
+      affected_users: 2.1 million metered customers
+      business_impact: Billing estimation required, data quality gap
+      scope: Meter data management
+    ideal_team_assignment: Meter Operations Team
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Large scale but recoverable. Can re-collect.
+  difficulty: easy
+- ticket_id: NRG-2024-007
+  description: Outage management system map display showing incorrect restoration times. Customer-facing app affected.
+  expected_classification:
+    category: operational
+    urgency: medium
+  human_labels:
+    category_correct_reasoning: Display/data issue is operational.
+    urgency_correct_reasoning: Customer communication issue, not operational impact.
+    ideal_impact_assessment:
+      affected_users: Customers checking outage status
+      business_impact: Customer frustration, increased call volume
+      scope: Outage communication
+    ideal_team_assignment: Customer Systems Team
+    ideal_sla_hours: 24
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Customer experience, not operations impact.
+  difficulty: easy
+- ticket_id: NRG-2024-008
+  description: Solar farm inverters firmware update failed mid-deployment. 30% of inverters in safe mode producing no power.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Firmware deployment failure is operational.
+    urgency_correct_reasoning: 30% generation loss is significant revenue and grid impact.
+    ideal_impact_assessment:
+      affected_users: Grid operations, solar farm revenue
+      business_impact: Lost generation, revenue loss, grid supply reduction
+      scope: Solar farm
+    ideal_team_assignment: Renewable Operations Team
+    ideal_sla_hours: 4
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Significant generation loss but safe mode = no safety risk.
+  difficulty: medium
+- ticket_id: NRG-2024-009
+  description: Trading desk lost access to ISO real-time pricing data. Unable to optimize dispatch for economic signals.
+  expected_classification:
+    category: operational
+    urgency: high
+  human_labels:
+    category_correct_reasoning: Data feed loss is operational issue.
+    urgency_correct_reasoning: Trading optimization affected. Direct financial impact.
+    ideal_impact_assessment:
+      affected_users: Energy trading desk
+      business_impact: Sub-optimal dispatch, potential financial loss
+      scope: Energy trading
+    ideal_team_assignment: Market Systems Team
+    ideal_sla_hours: 2
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 2
+    response_appropriateness: 2
+    impact_assessment_quality: 2
+    resource_assignment_correct: true
+    resource_assignment_quality: 2
+  notes: Financial optimization impact during trading hours.
+  difficulty: medium
+- ticket_id: NRG-2024-010
+  description: Physical security system at nuclear facility reporting camera failures in restricted zone. NRC notification
+    may be required.
+  expected_classification:
+    category: security
+    urgency: critical
+  human_labels:
+    category_correct_reasoning: Physical security at nuclear facility is security issue.
+    urgency_correct_reasoning: Nuclear facility security gap = immediate response + regulatory.
+    ideal_impact_assessment:
+      affected_users: Facility security, NRC
+      business_impact: Regulatory compliance, facility security
+      scope: Nuclear facility security
+    ideal_team_assignment: Nuclear Security Team
+    ideal_sla_hours: 1
+  evaluation_ground_truth:
+    category_correct: true
+    urgency_correct: true
+    reasoning_quality: 3
+    response_appropriateness: 3
+    impact_assessment_quality: 3
+    resource_assignment_correct: true
+    resource_assignment_quality: 3
+  notes: Nuclear + security = always critical. NRC notification requirement.
+  difficulty: easy
 metadata:
-  version: "1.0"
-  created: "2024-12-16"
+  version: '1.0'
+  created: '2024-12-16'
   total_tickets: 40
-  
   category_distribution:
     security: 5
     performance: 10
     operational: 15
     compliance: 4
     infrastructure: 6
-    
   urgency_distribution:
     critical: 14
     high: 19
     medium: 7
     low: 0
-    
   difficulty_distribution:
     easy: 24
     medium: 16
     hard: 0
-    
   industries:
-    - public_sector
-    - healthcare
-    - financial_services
-    - energy
-    
-  notes: |
-    This ground truth dataset covers regulated industries with varying 
-    incident types. Use for:
-    1. Judge validation (Phase 2) - compare judge output to human_labels
-    2. Agent evaluation (Phase 3) - compare agent output to expected_classification
-    
-    Edge cases included:
-    - Time-bounded urgency (deadlines, market hours)
-    - Compliance vs security distinction
-    - Infrastructure vs performance distinction  
-    - Context-dependent urgency (election timing, market hours)
+  - public_sector
+  - healthcare
+  - financial_services
+  - energy
+  notes: "This ground truth dataset covers regulated industries with varying \nincident types. Use for:\n1. Judge validation\
+    \ (Phase 2) - compare judge output to human_labels\n2. Agent evaluation (Phase 3) - compare agent output to expected_classification\n\
+    \nEdge cases included:\n- Time-bounded urgency (deadlines, market hours)\n- Compliance vs security distinction\n- Infrastructure\
+    \ vs performance distinction  \n- Context-dependent urgency (election timing, market hours)\n"

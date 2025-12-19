@@ -338,3 +338,55 @@ optimized_judge:
       avg_latency_ms: 1283.8
     batch_id: domino-andrea-20251216-220217
     validated_at: '2025-12-16T22:15:34.174631'
+  classifier:
+    healthcare:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1730.1
+      batch_id: domino-andrea-20251219-200958
+      validated_at: '2025-12-19T20:13:47.260356'
+  impact_assessor:
+    healthcare:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1952.4
+      batch_id: domino-andrea-20251219-200958
+      validated_at: '2025-12-19T20:19:15.799946'
+  response_drafter:
+    healthcare:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1534.7
+      batch_id: domino-andrea-20251219-200958
+      validated_at: '2025-12-19T20:29:05.988830'
+  resource_matcher:
+    healthcare:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 2039.2
+      batch_id: domino-andrea-20251219-200958
+      validated_at: '2025-12-19T20:24:27.014682'
