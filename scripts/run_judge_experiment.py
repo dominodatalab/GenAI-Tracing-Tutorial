@@ -737,47 +737,8 @@ def submit_best_config_job(
         # The job will load the best configs from judges.yaml and create a final MLflow run
         job_title = f"BEST-JUDGES-{vertical}-{batch_id}"
 
-        # Create a simple Python command that logs the best config
-        command = f'''python -c "
-import mlflow
-import yaml
-import os
-from datetime import datetime
-from domino.agents.logging import DominoRun
-
-vertical = '{vertical}'
-batch_id = '{batch_id}'
-
-# Load best config from judges.yaml
-with open('/mnt/code/configs/judges.yaml') as f:
-    config = yaml.safe_load(f)
-
-optimized = config.get('optimized_judge', {{}})
-
-# Set experiment
-experiment_name = 'judge-optimization-' + vertical + '-' + os.environ.get('DOMINO_USER_NAME', 'job')
-mlflow.set_experiment(experiment_name)
-
-with DominoRun(agent_config_path='/mnt/code/configs/agents.yaml') as run:
-    mlflow.set_tag('mlflow.runName', 'FINAL-BEST-JUDGES-{vertical}')
-    mlflow.set_tag('batch_id', batch_id)
-    mlflow.set_tag('best_parameters', 'true')
-    mlflow.set_tag('registered_job', 'true')
-    mlflow.set_tag('vertical', vertical)
-
-    for jt, jt_configs in optimized.items():
-        if vertical in jt_configs:
-            cfg = jt_configs[vertical]
-            mlflow.log_param(f'{{jt}}_model', cfg.get('model'))
-            mlflow.log_param(f'{{jt}}_temperature', cfg.get('temperature'))
-            mlflow.log_param(f'{{jt}}_prompt_style', cfg.get('prompt_style'))
-            mlflow.log_param(f'{{jt}}_scale', cfg.get('scale'))
-            metrics = cfg.get('validated_metrics', {{}})
-            for k, v in metrics.items():
-                mlflow.log_metric(f'{{jt}}_{{k}}', v)
-
-    print(f'Registered FINAL-BEST-JUDGES-{vertical} with batch_id: {{batch_id}}')
-"'''
+        # Call the dedicated registration script with arguments
+        command = f"python scripts/register_best_judges.py --vertical {vertical} --batch-id {batch_id}"
 
         result = domino.job_start(command=command, title=job_title)
 

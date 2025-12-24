@@ -1,0 +1,42 @@
+# TriageFlow Project Status
+# Last updated: 2025-12-23
+
+## COMPLETED
+- [x] Set up TriageFlow multi-agent incident triage system with 4 agents
+- [x] Integrated Domino GenAI tracing (notebook demo working)
+- [x] Created judge experiment infrastructure (run_judge_experiment.py)
+- [x] Created ground truth labels for all 4 verticals (ground_truth_judgments.yaml)
+- [x] Ran judge optimization for financial_services (100% agreement, binary scale best)
+- [x] Ran judge optimization for healthcare (100% agreement, binary scale best)
+
+## IN PROGRESS - Judge Experiments
+
+### Next Commands to Run:
+```bash
+python scripts/run_judge_experiment.py --vertical energy --model gpt-4o-mini --runs-per-config 2 --submit-job
+python scripts/run_judge_experiment.py --vertical public_sector --model gpt-4o-mini --runs-per-config 2 --submit-job
+```
+
+## REMAINING TASKS
+
+### High Priority
+- [ ] Run judge experiments for remaining verticals:
+  - [x] financial_services (DONE - 100% agreement)
+  - [x] healthcare (DONE - 100% agreement)
+  - [ ] energy
+  - [ ] public_sector
+
+### After Judge Experiments
+- [ ] Run local model optimization (once Qwen endpoint verified)
+  ```bash
+  python scripts/run_local_optimization.py --vertical healthcare --submit-job
+  ```
+
+### Medium Priority
+- [ ] Set up guardrails call
+- [ ] Create separate demo app
+- [ ] Have judge evaluations run on a schedule (not as part of production app)
+
+## KEY FINDING
+Binary scale significantly outperforms three_point scale for judges.
+Best config so far: gpt-4o-mini, temp=0.0, direct prompt, binary scale

@@ -348,9 +348,33 @@ optimized_judge:
         human_agreement: 1.0
         consistency_std: 0.0
         json_parse_rate: 1.0
-        avg_latency_ms: 1231.2
-      batch_id: domino-andrea-20251219-203456
-      validated_at: '2025-12-19T20:51:33.560165'
+        avg_latency_ms: 1486.0
+      batch_id: domino-andrea-20251223-162508
+      validated_at: '2025-12-23T16:48:12.998740'
+    energy:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1386.0
+      batch_id: domino-andrea-20251223-171627
+      validated_at: '2025-12-23T17:41:27.839071'
+    public_sector:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1623.2
+      batch_id: domino-andrea-20251223-204448
+      validated_at: '2025-12-23T21:10:33.637811'
   impact_assessor:
     healthcare:
       model: gpt-4o-mini
@@ -364,6 +388,18 @@ optimized_judge:
         avg_latency_ms: 1566.4
       batch_id: domino-andrea-20251219-203456
       validated_at: '2025-12-19T21:18:51.864561'
+    public_sector:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1483.8
+      batch_id: domino-andrea-20251223-204448
+      validated_at: '2025-12-23T21:44:24.224308'
   response_drafter:
     healthcare:
       model: gpt-4o-mini
@@ -377,6 +413,18 @@ optimized_judge:
         avg_latency_ms: 1534.7
       batch_id: domino-andrea-20251219-200958
       validated_at: '2025-12-19T20:29:05.988830'
+    public_sector:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1553.4
+      batch_id: domino-andrea-20251223-204448
+      validated_at: '2025-12-23T22:49:11.718770'
   resource_matcher:
     healthcare:
       model: gpt-4o-mini
@@ -390,3 +438,15 @@ optimized_judge:
         avg_latency_ms: 2034.8
       batch_id: domino-andrea-20251219-203456
       validated_at: '2025-12-19T21:44:43.651403'
+    public_sector:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 0.9
+        consistency_std: 0.3
+        json_parse_rate: 1.0
+        avg_latency_ms: 1569.5
+      batch_id: domino-andrea-20251223-204448
+      validated_at: '2025-12-23T22:19:55.991150'
