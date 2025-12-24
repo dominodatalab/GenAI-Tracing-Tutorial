@@ -375,6 +375,18 @@ optimized_judge:
         avg_latency_ms: 1623.2
       batch_id: domino-andrea-20251223-204448
       validated_at: '2025-12-23T21:10:33.637811'
+    financial_services:
+      model: gpt-4o-mini
+      temperature: 0.0
+      prompt_style: direct
+      scale: binary
+      validated_metrics:
+        human_agreement: 1.0
+        consistency_std: 0.0
+        json_parse_rate: 1.0
+        avg_latency_ms: 1316.9
+      batch_id: domino-andrea-20251224-162327
+      validated_at: '2025-12-24T16:47:42.988089'
   impact_assessor:
     healthcare:
       model: gpt-4o-mini

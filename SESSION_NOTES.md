@@ -1,8 +1,14 @@
 # Session Notes - Judge Optimization
 
-## Status: Running Judge Experiments (2 of 4 verticals complete)
+## Status: Running Judge Experiments (3 of 4 verticals complete)
 
-### Bug Fix Applied This Session
+### IMPORTANT REMINDER
+
+**Domino Jobs will NOT run successfully** because the workspace is syncing to branch `6.2` instead of the main repo. The job environment pulls from main, so any uncommitted or branch-only changes (like `scripts/register_best_judges.py`) won't be available to the job.
+
+**To fix:** Either merge branch `6.2` to main, or run experiments locally without `--submit-job`.
+
+### Bug Fix Applied
 
 **Fixed Domino Job syntax error** in `scripts/run_judge_experiment.py`:
 - The `--submit-job` command was generating inline Python with quoting issues
@@ -22,8 +28,10 @@
 ### Next: Run Last Judge Experiment
 
 ```bash
-python scripts/run_judge_experiment.py --vertical public_sector --model gpt-4o-mini --runs-per-config 2 --submit-job
+python scripts/run_judge_experiment.py --vertical public_sector --model gpt-4o-mini --runs-per-config 2
 ```
+
+(Run without `--submit-job` until branch is merged to main)
 
 ### After Judge Experiments: Local Model Optimization
 
@@ -60,8 +68,9 @@ The Qwen endpoint (`https://genai-llm.domino-eval.com/endpoints/bf209962-1bd0-45
 |-----|----------|--------|--------|
 | BEST-JUDGES-healthcare | healthcare | 694ac80741d3de61e5838fb6 | Failed (quoting bug) |
 | BEST-JUDGES-energy | energy | 694ad48941d3de61e5838fe2 | Failed (quoting bug) |
+| BEST-JUDGES-financial_services | financial_services | 694c1969b1957a560829dd85 | Pending (will fail - branch issue) |
 
-Note: Jobs failed due to inline Python quoting issues. Fixed by creating `scripts/register_best_judges.py`.
+Note: Jobs fail because workspace syncs to branch `6.2` instead of main.
 
 ### Temperature Recommendations
 
