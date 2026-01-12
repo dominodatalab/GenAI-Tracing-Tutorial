@@ -1,5 +1,6 @@
 import mlflow
 from mlflow.entities import SpanType
+from datetime import datetime
 
 
 @mlflow.trace(span_type=SpanType.TOOL)
@@ -175,3 +176,83 @@ def get_stakeholder_list(category: str, impact_score: float, blast_radius: str) 
         })
 
     return stakeholders
+
+
+@mlflow.trace(span_type=SpanType.TOOL)
+def propose_slack_message(channel: str, message: str) -> dict:
+    """
+    Propose an internal Slack message for team communication.
+
+    Use this to draft internal notifications for team coordination, escalations, or status updates.
+
+    Args:
+        channel: Target channel - one of: general, IT, HR, Finance, Engineering
+        message: The message content to post
+    """
+    valid_channels = ["general", "IT", "HR", "Finance", "Engineering"]
+
+    if channel not in valid_channels:
+        # Find best match or default to general
+        channel_lower = channel.lower()
+        matched = next((c for c in valid_channels if c.lower() == channel_lower), "general")
+        channel = matched
+
+    return {
+        "proposed_channel": f"#{channel}",
+        "proposed_message": message,
+        "status": "drafted",
+        "requires_approval": True,
+        "valid_channels": valid_channels
+    }
+
+
+@mlflow.trace(span_type=SpanType.TOOL)
+def draft_external_communication(audience: str, subject: str, body: str,
+                                  incident_id: str = None,
+                                  requires_approval: bool = True) -> dict:
+    """
+    Draft external communication for customers, press, or regulatory bodies.
+
+    Use this for customer-facing incidents, data breaches, service outages with SLA impact,
+    or regulatory/compliance issues that require external notification.
+    """
+    approval_workflows = {
+        "customers": "manager_approval",
+        "affected_users": "manager_approval",
+        "press": "legal_and_pr_review",
+        "media": "legal_and_pr_review",
+        "regulatory": "legal_and_compliance_review",
+        "partners": "partner_relations_review"
+    }
+
+    workflow = approval_workflows.get(audience.lower(), "manager_approval")
+
+    return {
+        "status": "drafted",
+        "audience": audience,
+        "subject": subject,
+        "body_preview": body[:300] + ("..." if len(body) > 300 else ""),
+        "incident_id": incident_id,
+        "requires_approval": requires_approval,
+        "delivery_method": "external_email",
+        "approval_workflow": workflow,
+        "draft_id": f"draft-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "created_at": datetime.now().isoformat()
+    }
+
+
+@mlflow.trace(span_type=SpanType.TOOL)
+def skip_communication(reason: str, incident_id: str = None) -> dict:
+    """
+    Explicitly document decision to skip communication for this incident.
+
+    Use this when no communication is warranted - e.g., fully contained issues,
+    informational tickets, or issues already handled by automated systems.
+    """
+    return {
+        "status": "skipped",
+        "reason": reason,
+        "incident_id": incident_id,
+        "decision_timestamp": datetime.now().isoformat(),
+        "requires_follow_up": False
+    }

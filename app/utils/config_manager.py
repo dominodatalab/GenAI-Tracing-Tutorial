@@ -14,7 +14,7 @@ import yaml
 
 
 # Constants
-BASE_CONFIG_PATH = "/mnt/code/config.yaml"
+BASE_CONFIG_PATH = "/mnt/code/configs/agents.yaml"
 EXAMPLE_DATA_PATH = "/mnt/code/example-data"
 VERTICALS = ["financial_services", "healthcare", "energy", "public_sector"]
 PROVIDERS = ["openai", "anthropic"]

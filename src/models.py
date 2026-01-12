@@ -95,12 +95,47 @@ class Communication(BaseModel):
         return str(v) if v is not None else v
 
 
+class SlackMessage(BaseModel):
+    """Proposed internal Slack message."""
+    channel: str
+    message: str
+    status: str = "drafted"
+
+
+class CommunicationDecision(BaseModel):
+    """Agent's autonomous decision about communication strategy."""
+    requires_external: bool = False
+    requires_internal: bool = False
+    requires_none: bool = False
+    reasoning: str
+
+
 class ResponsePlan(BaseModel):
-    communications: list[Communication]
+    communication_decision: Optional[CommunicationDecision] = None
+    communications: list[Communication] = Field(default_factory=list)
+    slack_messages: list[SlackMessage] = Field(default_factory=list)
     action_items: list[str]
     estimated_resolution_time: str
     escalation_required: bool
     completeness_score: float = Field(..., ge=0.0, le=1.0)
+
+    @field_validator("communication_decision", mode="before")
+    @classmethod
+    def coerce_communication_decision(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            return CommunicationDecision(**v)
+        return v
+
+    @field_validator("slack_messages", mode="before")
+    @classmethod
+    def coerce_slack_messages(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [SlackMessage(**m) if isinstance(m, dict) else m for m in v]
+        return v
 
 
 class TriageResult(BaseModel):

@@ -38,6 +38,7 @@ from domino.agents.logging import DominoRun, log_evaluation
 from src.models import Incident, IncidentSource
 from src.agents import classify_incident, assess_impact, match_resources, draft_response
 from src.judges import judge_classification, judge_response, judge_triage
+from src.guardrails import GuardrailsWrapper, check_input, check_output, health_check as guardrails_health_check
 
 
 # Valid options
@@ -109,6 +110,16 @@ def parse_args():
         type=str,
         default=None,
         help="Path to test data file (JSONL format for experiments)"
+    )
+    parser.add_argument(
+        "--guardrails",
+        action="store_true",
+        help="Enable guardrails for input validation and output sanitization"
+    )
+    parser.add_argument(
+        "--guardrails-fail-closed",
+        action="store_true",
+        help="Block processing if guardrails service is unavailable (default: fail-open)"
     )
     return parser.parse_args()
 
@@ -255,12 +266,57 @@ def pipeline_evaluator(span) -> dict:
     }
 
 
-def create_triage_function(client, provider: str, model: str, config: dict):
-    """Create the traced triage pipeline function."""
+def create_triage_function(client, provider: str, model: str, config: dict,
+                           use_guardrails: bool = False, fail_closed: bool = False):
+    """Create the traced triage pipeline function with optional guardrails."""
 
     @add_tracing(name="triage_incident", autolog_frameworks=[provider], evaluator=pipeline_evaluator)
     def triage_incident(incident: Incident):
-        """Run the 4-agent triage pipeline with LLM judges."""
+        """Run the 4-agent triage pipeline with LLM judges and optional guardrails."""
+
+        # Guardrails input validation
+        guardrails_metrics = {}
+        if use_guardrails:
+            input_result = check_input(incident.description)
+            guardrails_metrics["guardrails_input_passed"] = input_result.passed
+            guardrails_metrics["guardrails_input_latency_ms"] = input_result.latency_ms
+
+            if input_result.checks.get("prompt_injection"):
+                guardrails_metrics["guardrails_injection_detected"] = input_result.checks["prompt_injection"].get("is_injection", False)
+            if input_result.checks.get("pii"):
+                guardrails_metrics["guardrails_input_pii_count"] = input_result.checks["pii"].get("count", 0)
+
+            # Check if input should be blocked
+            if not input_result.passed:
+                return {
+                    "status": "blocked",
+                    "blocked_reason": input_result.blocked_reason,
+                    "guardrails": input_result.to_dict(),
+                    # Return zero/null metrics for blocked incidents
+                    "classification_confidence": 0.0,
+                    "impact_score": 0.0,
+                    "resource_match_score": 0.0,
+                    "completeness_score": 0.0,
+                    "classification_judge_score": 0,
+                    "response_judge_score": 0,
+                    "triage_judge_score": 0,
+                }
+
+            # Check fail-closed mode
+            if fail_closed and not input_result.checks.get("service_available", True):
+                return {
+                    "status": "blocked",
+                    "blocked_reason": "Guardrails service unavailable (fail-closed mode)",
+                    "guardrails": input_result.to_dict(),
+                    "classification_confidence": 0.0,
+                    "impact_score": 0.0,
+                    "resource_match_score": 0.0,
+                    "completeness_score": 0.0,
+                    "classification_judge_score": 0,
+                    "response_judge_score": 0,
+                    "triage_judge_score": 0,
+                }
+
         # Agent 1: Classify the incident
         classification = classify_incident(client, provider, model, incident, config)
 
@@ -280,6 +336,22 @@ def create_triage_function(client, provider: str, model: str, config: dict):
         response_dict = response.model_dump()
         primary = resources_dict.get("primary_responder", {})
 
+        # Guardrails output sanitization
+        if use_guardrails:
+            # Sanitize communications in response
+            sanitized_comms = []
+            for comm in response_dict.get("communications", []):
+                output_result = check_output(comm.get("body", ""))
+                if output_result.sanitized_text:
+                    comm["body"] = output_result.sanitized_text
+                    comm["body_sanitized"] = True
+                sanitized_comms.append(comm)
+            response_dict["communications"] = sanitized_comms
+
+            guardrails_metrics["guardrails_output_sanitized"] = any(
+                c.get("body_sanitized", False) for c in sanitized_comms
+            )
+
         # Run LLM judges to evaluate output quality
         class_judge = judge_classification(client, provider, incident.description, class_dict)
 
@@ -291,7 +363,7 @@ def create_triage_function(client, provider: str, model: str, config: dict):
 
         triage_judge = judge_triage(client, provider, incident.description, class_dict, impact_dict, resources_dict, response_dict)
 
-        return {
+        result = {
             "classification": classification,
             "impact": impact,
             "resources": resources,
@@ -305,6 +377,12 @@ def create_triage_function(client, provider: str, model: str, config: dict):
             "response_judge_score": resp_judge.get("score", 3),
             "triage_judge_score": triage_judge.get("score", 3),
         }
+
+        # Add guardrails metrics if enabled
+        if use_guardrails:
+            result["guardrails"] = guardrails_metrics
+
+        return result
 
     return triage_incident
 
@@ -497,8 +575,13 @@ def run_experiment_mode(args, config_path: str, config: dict, incidents: list) -
     # Initialize client
     client = initialize_client(args.provider, config, quiet=True)
 
-    # Create triage function
-    triage_incident = create_triage_function(client, args.provider, model, config)
+    # Create triage function (guardrails can be enabled in experiment mode too)
+    use_guardrails = getattr(args, 'guardrails', False)
+    fail_closed = getattr(args, 'guardrails_fail_closed', False)
+    triage_incident = create_triage_function(
+        client, args.provider, model, config,
+        use_guardrails=use_guardrails, fail_closed=fail_closed
+    )
 
     # Set up experiment naming to match run_model_experiment.py
     username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
@@ -645,24 +728,54 @@ def main():
         ("triage_judge_score", "mean"),
     ]
 
-    # Create the traced triage function
-    triage_incident = create_triage_function(client, args.provider, model, config)
+    # Create the traced triage function with optional guardrails
+    triage_incident = create_triage_function(
+        client, args.provider, model, config,
+        use_guardrails=args.guardrails, fail_closed=args.guardrails_fail_closed
+    )
+
+    # Check guardrails service if enabled
+    if args.guardrails:
+        print(f"Guardrails: enabled (fail-{'closed' if args.guardrails_fail_closed else 'open'})")
+        if guardrails_health_check():
+            print("Guardrails service: healthy")
+        else:
+            print("Guardrails service: unavailable")
+            if args.guardrails_fail_closed:
+                print("ERROR: Guardrails fail-closed mode but service unavailable")
+                return
+        print()
 
     # Set MLflow experiment
     mlflow.set_experiment(experiment_name)
 
     # Run the pipeline
     results = []
+    blocked_count = 0
     run_id = None
 
     with DominoRun(agent_config_path=config_path, custom_summary_metrics=aggregated_metrics) as run:
         mlflow.set_tag("mlflow.runName", run_name)
+        if args.guardrails:
+            mlflow.set_tag("guardrails_enabled", "true")
         run_id = run.info.run_id
 
         for incident in incidents:
             print(f"Processing {incident.ticket_id}...")
 
             result = triage_incident(incident)
+
+            # Handle blocked incidents
+            if result.get("status") == "blocked":
+                print(f"  -> BLOCKED: {result.get('blocked_reason', 'Unknown reason')}")
+                blocked_count += 1
+                results.append({
+                    "ticket_id": incident.ticket_id,
+                    "status": "blocked",
+                    "blocked_reason": result.get("blocked_reason"),
+                    **result
+                })
+                continue
 
             results.append({
                 "ticket_id": incident.ticket_id,
@@ -675,14 +788,18 @@ def main():
         sys.stdout = io.StringIO()
 
     sys.stdout = _stdout
-    print(f"\nProcessed {len(results)} incidents")
+    processed = len([r for r in results if r.get("status") != "blocked"])
+    print(f"\nProcessed {processed} incidents")
+    if blocked_count > 0:
+        print(f"Blocked by guardrails: {blocked_count} incidents")
 
-    # Print results
-    print_results_summary(results)
-    print_sample_communication(results)
+    # Print results (only non-blocked)
+    processed_results = [r for r in results if r.get("status") != "blocked"]
+    print_results_summary(processed_results)
+    print_sample_communication(processed_results)
 
-    # Add ad hoc evaluations
-    add_adhoc_evaluations(run_id, results)
+    # Add ad hoc evaluations (only for processed results)
+    add_adhoc_evaluations(run_id, processed_results)
 
     print("\n" + "=" * 80)
     print("Done! View traces in Domino Experiment Manager.")

@@ -27,20 +27,21 @@ agent_models:
   response_drafter: "anthropic"
 
 # =============================================================================
-# TOOL DEFINITIONS
+# UNIFIED TOOL POOL
+# All tools available to all agents - agents choose based on context
 # =============================================================================
 tools:
-  classifier:
+  # All tools defined once in a single pool
+  all_tools:
     - name: lookup_category_definitions
-      description: Get official category definitions and classification criteria
+      description: Get official category definitions and classification criteria for incident categorization
       parameters:
         type: object
         properties: {}
         required: []
 
-  impact_assessor:
     - name: lookup_historical_incidents
-      description: Search for similar historical incidents to inform impact assessment
+      description: Search for similar historical incidents to inform impact assessment and learn from past resolutions
       parameters:
         type: object
         properties:
@@ -55,8 +56,9 @@ tools:
             description: Max results
             default: 5
         required: [category, subcategory]
+
     - name: calculate_impact_score
-      description: Calculate normalized impact score (0-10) based on multiple factors
+      description: Calculate normalized impact score (0-10) based on urgency, affected users, systems, and business factors
       parameters:
         type: object
         properties:
@@ -77,9 +79,8 @@ tools:
             description: Whether there are compliance implications
         required: [urgency, affected_users, affected_systems_count, has_financial_impact, has_compliance_implications]
 
-  resource_matcher:
     - name: check_resource_availability
-      description: Check available resources matching required skills
+      description: Check available resources matching required skills and current workload
       parameters:
         type: object
         properties:
@@ -92,8 +93,9 @@ tools:
             type: integer
             description: Urgency level 1-5
         required: [required_skills, urgency]
+
     - name: get_sla_requirements
-      description: Get SLA requirements based on urgency and category
+      description: Get SLA requirements (response time, resolution time) based on urgency and category
       parameters:
         type: object
         properties:
@@ -105,9 +107,8 @@ tools:
             description: Incident category
         required: [urgency, category]
 
-  response_drafter:
     - name: get_communication_templates
-      description: Get communication templates for different audiences
+      description: Get communication templates for different audiences (technical team, management, affected users)
       parameters:
         type: object
         properties:
@@ -118,8 +119,9 @@ tools:
             type: integer
             description: Urgency level 1-5
         required: [category, urgency]
+
     - name: get_stakeholder_list
-      description: Determine which stakeholders need notification
+      description: Determine which stakeholders need notification based on incident scope and impact
       parameters:
         type: object
         properties:
@@ -131,8 +133,78 @@ tools:
             description: Impact score 0-10
           blast_radius:
             type: string
-            description: Blast radius level
+            description: Blast radius level (contained, department, organization, external)
         required: [category, impact_score, blast_radius]
+
+    - name: propose_slack_message
+      description: Propose an internal Slack message for team communication and coordination
+      parameters:
+        type: object
+        properties:
+          channel:
+            type: string
+            description: "Target Slack channel - must be one of: general, IT, HR, Finance, Engineering"
+            enum: [general, IT, HR, Finance, Engineering]
+          message:
+            type: string
+            description: The message content to post
+        required: [channel, message]
+
+    - name: draft_external_communication
+      description: Draft external communication for customers, press, or regulatory bodies requiring approval workflow
+      parameters:
+        type: object
+        properties:
+          audience:
+            type: string
+            description: Target audience (customers, affected_users, press, media, regulatory, partners)
+          subject:
+            type: string
+            description: Communication subject line
+          body:
+            type: string
+            description: Full communication body text
+          incident_id:
+            type: string
+            description: Associated incident ID for tracking
+          requires_approval:
+            type: boolean
+            description: Whether approval is required before sending
+            default: true
+        required: [audience, subject, body]
+
+    - name: skip_communication
+      description: Explicitly document decision to skip communication for contained or automated incidents
+      parameters:
+        type: object
+        properties:
+          reason:
+            type: string
+            description: Reason for skipping communication
+          incident_id:
+            type: string
+            description: Associated incident ID for tracking
+        required: [reason]
+
+# =============================================================================
+# AGENT TOOL SUGGESTIONS
+# Guidance for agents - they can use any tool but these are recommended
+# =============================================================================
+agent_tool_suggestions:
+  classifier:
+    - lookup_category_definitions
+  impact_assessor:
+    - lookup_historical_incidents
+    - calculate_impact_score
+  resource_matcher:
+    - check_resource_availability
+    - get_sla_requirements
+  response_drafter:
+    - get_communication_templates
+    - get_stakeholder_list
+    - propose_slack_message
+    - draft_external_communication
+    - skip_communication
 
 # =============================================================================
 # AGENT CONFIGURATIONS
@@ -142,9 +214,16 @@ agents:
     temperature: 0.3
     max_tokens: 1000
     prompt: |
-      You are an incident classification specialist. First, use the lookup_category_definitions tool to get the official category definitions.
+      You are an incident classification specialist in a multi-agent triage system.
 
-      Then analyze the incident and return JSON with:
+      AVAILABLE TOOLS: You have access to ALL tools in the system. Use any that help you make better decisions.
+      SUGGESTED TOOLS: lookup_category_definitions (recommended for your role)
+
+      Your primary task is to classify the incident. Use lookup_category_definitions to get official categories.
+      However, if you need additional context (e.g., checking historical incidents for similar patterns),
+      you may use other tools at your discretion.
+
+      Return JSON with:
       - category: one of [security, operational, performance, data_integrity, compliance, infrastructure, user_access]
       - subcategory: specific subcategory from the definitions
       - urgency: 1-5 (5=critical)
@@ -161,16 +240,22 @@ agents:
 
       Incident: {incident}
 
-      Return only valid JSON after using the tool.
+      Return only valid JSON after using tools.
 
   impact_assessor:
     temperature: 0.4
     max_tokens: 1500
     prompt: |
-      You are an impact assessment specialist. You have access to tools to help assess impact.
+      You are an impact assessment specialist in a multi-agent triage system.
 
-      First, use lookup_historical_incidents with the category and subcategory from the classification to find similar past incidents.
-      Then use calculate_impact_score to compute a normalized score based on your assessment.
+      AVAILABLE TOOLS: You have access to ALL tools in the system. Use any that help you make better decisions.
+      SUGGESTED TOOLS: lookup_historical_incidents, calculate_impact_score (recommended for your role)
+
+      Your primary task is to assess impact. Use lookup_historical_incidents to find similar past incidents,
+      and calculate_impact_score to compute a normalized score.
+
+      However, if you need additional context (e.g., checking SLA requirements to understand urgency thresholds,
+      or looking up category definitions for better understanding), you may use other tools at your discretion.
 
       Return JSON with:
       - impact_score: use the calculate_impact_score tool result
@@ -184,16 +269,23 @@ agents:
       Classification: {classification}
       Incident: {incident}
 
-      Return only valid JSON after using the tools.
+      Return only valid JSON after using tools.
 
   resource_matcher:
     temperature: 0.2
     max_tokens: 1500
     prompt: |
-      You are a resource allocation specialist. You have access to tools to check availability and SLA requirements.
+      You are a resource allocation specialist in a multi-agent triage system.
 
-      First, use check_resource_availability with the required skills based on the incident category.
-      Then use get_sla_requirements to understand the SLA targets.
+      AVAILABLE TOOLS: You have access to ALL tools in the system. Use any that help you make better decisions.
+      SUGGESTED TOOLS: check_resource_availability, get_sla_requirements (recommended for your role)
+
+      Your primary task is to match resources to the incident. Use check_resource_availability to find
+      responders with matching skills, and get_sla_requirements to understand response time targets.
+
+      However, if you need additional context (e.g., looking up historical incidents to see who handled
+      similar issues, or checking stakeholder lists to understand escalation needs), you may use other
+      tools at your discretion.
 
       Return JSON with:
       - primary_responder: select the best match from available resources with fields: resource_id, name, role, skills, availability, match_score
@@ -206,21 +298,50 @@ agents:
       Classification: {classification}
       Impact: {impact}
 
-      Return only valid JSON after using the tools.
+      Return only valid JSON after using tools.
 
   response_drafter:
     temperature: 0.7
-    max_tokens: 2000
+    max_tokens: 2500
     prompt: |
-      You are a communications specialist. You have access to tools to get templates and stakeholder information.
+      You are a communications specialist in a multi-agent triage system with FULL AUTONOMY to decide communication strategy.
 
-      First, use get_stakeholder_list to determine who needs to be notified.
-      Then use get_communication_templates to get appropriate templates for each audience.
+      AVAILABLE TOOLS: You have access to ALL tools in the system. Use any that help you make better decisions.
+      SUGGESTED TOOLS: get_stakeholder_list, get_communication_templates, propose_slack_message, draft_external_communication, skip_communication
 
-      Create communications for each required stakeholder using the templates as guidance.
+      YOUR CRITICAL DECISION: Determine what type of communication (if any) is needed:
+
+      EXTERNAL COMMUNICATION (use draft_external_communication):
+      - Customer-facing incidents affecting service availability
+      - Data breaches or security incidents affecting user data
+      - Service outages with SLA impact
+      - Regulatory/compliance issues requiring disclosure
+      - Incidents with "external" blast radius
+
+      INTERNAL SLACK MESSAGE (use propose_slack_message):
+      - Team coordination for contained incidents
+      - Routine escalations to on-call
+      - Internal status updates
+      - Incidents with "department" or "organization" blast radius that don't affect external users
+      - Choose from channels: general, IT, HR, Finance, Engineering
+
+      NO COMMUNICATION (use skip_communication):
+      - Fully contained issues with no user impact
+      - Informational tickets or requests
+      - Issues already handled by automated systems
+      - Low-severity incidents with "contained" blast radius
+
+      You may use MULTIPLE communication methods if appropriate (e.g., Slack for internal team AND external for customers).
+      You may also use NEITHER if communication is not warranted.
 
       Return JSON with:
-      - communications: list of objects with audience, subject, body, urgency_indicator
+      - communication_decision:
+          - requires_external: boolean
+          - requires_internal: boolean
+          - requires_none: boolean
+          - reasoning: why you chose this communication strategy
+      - communications: list of objects with audience, subject, body, urgency_indicator (can be empty if skip_communication used)
+      - slack_messages: list of proposed Slack messages with channel and message (can be empty)
       - action_items: list of specific action strings
       - estimated_resolution_time: string estimate
       - escalation_required: boolean
@@ -231,7 +352,7 @@ agents:
       Impact: {impact}
       Resources: {resources}
 
-      Return only valid JSON after using the tools.
+      Return only valid JSON after using tools.
 
 # =============================================================================
 # SLA DEFINITIONS
@@ -260,3 +381,123 @@ experiment:
   # Test data for experiments
   test_data:
     source: "example-data/test_incidents.jsonl"
+
+# =============================================================================
+# STRICT LOCAL MODEL PROMPTS (for Qwen with few-shot)
+# =============================================================================
+# These prompts are more structured and explicit for smaller local models.
+# They include {few_shot_examples} placeholder for injecting examples.
+
+local_prompts:
+  classifier:
+    temperature: 0.1
+    max_tokens: 800
+    prompt: |
+      You are a classification system. Your task is to classify IT incidents.
+
+      VALID CATEGORIES (choose exactly one):
+      - security: Security breaches, unauthorized access, vulnerabilities
+      - operational: System failures, outages, service disruptions
+      - performance: Slow response, degraded performance, capacity issues
+      - data_integrity: Data corruption, loss, inconsistency
+      - compliance: Regulatory violations, audit findings, policy breaches
+      - infrastructure: Hardware failures, network issues, resource problems
+      - user_access: Login issues, permission problems, account management
+
+      URGENCY SCALE:
+      - 5: Critical - Active breach, complete outage, data loss in progress
+      - 4: High - Significant degradation, potential security incident
+      - 3: Medium - Moderate impact, workarounds available
+      - 2: Low - Minor impact, single user/system
+      - 1: Minimal - Informational, minor requests
+
+      {few_shot_examples}
+
+      NOW CLASSIFY THIS INCIDENT:
+      {incident}
+
+      Respond with ONLY valid JSON in this exact format:
+      {{"category": "one_of_the_categories", "subcategory": "specific_type", "urgency": 1-5, "confidence": 0.0-1.0, "reasoning": "brief explanation", "affected_domain": "department"}}
+
+  impact_assessor:
+    temperature: 0.1
+    max_tokens: 1000
+    prompt: |
+      You are an impact assessment system. Evaluate the impact of IT incidents.
+
+      BLAST RADIUS OPTIONS:
+      - contained: Single system or user, no spread
+      - department: Affects one team or department
+      - organization: Affects multiple departments or company-wide
+      - external: Affects customers or external parties
+
+      IMPACT SCORE: Calculate 0-10 based on:
+      - Urgency level (from classification)
+      - Number of affected users
+      - Number of affected systems
+      - Financial implications
+      - Compliance implications
+
+      {few_shot_examples}
+
+      INCIDENT: {incident}
+      CLASSIFICATION: {classification}
+
+      Respond with ONLY valid JSON in this exact format:
+      {{"impact_score": 0.0-10.0, "affected_users_estimate": number, "affected_systems": ["system1", "system2"], "financial_exposure": number_or_null, "similar_incidents": [], "blast_radius": "one_of_options", "reasoning": "brief explanation"}}
+
+  resource_matcher:
+    temperature: 0.1
+    max_tokens: 1000
+    prompt: |
+      You are a resource assignment system. Match responders to incidents.
+
+      AVAILABLE RESPONDERS:
+      - Security Team: security incidents, breaches, vulnerabilities
+      - Infrastructure Team: hardware, network, system failures
+      - Application Team: software bugs, performance issues
+      - Database Team: data issues, integrity problems
+      - Support Team: user access, general issues
+
+      SLA TARGETS BY URGENCY:
+      - Urgency 5: 1 hour response, 4 hour resolution
+      - Urgency 4: 2 hour response, 8 hour resolution
+      - Urgency 3: 4 hour response, 24 hour resolution
+      - Urgency 2: 8 hour response, 48 hour resolution
+      - Urgency 1: 24 hour response, 168 hour resolution
+
+      {few_shot_examples}
+
+      CLASSIFICATION: {classification}
+      IMPACT: {impact}
+
+      Respond with ONLY valid JSON in this exact format:
+      {{"primary_responder": {{"resource_id": "id", "name": "Name", "role": "Role", "skills": ["skill1"], "availability": "available", "match_score": 0.0-1.0}}, "backup_responders": [], "sla_target_hours": number, "sla_met": true_or_false, "escalation_path": ["role1", "role2"], "reasoning": "brief explanation"}}
+
+  response_drafter:
+    temperature: 0.2
+    max_tokens: 1500
+    prompt: |
+      You are a communication system. Draft incident communications.
+
+      COMMUNICATION DECISION RULES:
+      - EXTERNAL: Required for customer-facing incidents, data breaches, SLA violations
+      - INTERNAL SLACK: Required for team coordination, internal escalations
+      - NONE: For contained issues with no user impact, automated resolutions
+
+      SLACK CHANNELS (if internal needed):
+      - general: Company-wide announcements
+      - IT: Technical team coordination
+      - HR: People-related incidents
+      - Finance: Financial system issues
+      - Engineering: Development team issues
+
+      {few_shot_examples}
+
+      INCIDENT: {incident}
+      CLASSIFICATION: {classification}
+      IMPACT: {impact}
+      RESOURCES: {resources}
+
+      Respond with ONLY valid JSON in this exact format:
+      {{"communication_decision": {{"requires_external": true_or_false, "requires_internal": true_or_false, "requires_none": true_or_false, "reasoning": "why"}}, "communications": [], "slack_messages": [], "action_items": ["item1", "item2"], "estimated_resolution_time": "X hours", "escalation_required": true_or_false, "completeness_score": 0.0-1.0}}

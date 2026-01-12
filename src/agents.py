@@ -9,9 +9,11 @@ from .models import (
 from .tools import (
     lookup_category_definitions, lookup_historical_incidents, calculate_impact_score,
     check_resource_availability, get_sla_requirements,
-    get_communication_templates, get_stakeholder_list
+    get_communication_templates, get_stakeholder_list,
+    propose_slack_message, draft_external_communication, skip_communication
 )
 
+# Unified tool registry - all tools available to all agents
 TOOL_FUNCTIONS = {
     "lookup_category_definitions": lookup_category_definitions,
     "lookup_historical_incidents": lookup_historical_incidents,
@@ -20,6 +22,10 @@ TOOL_FUNCTIONS = {
     "get_sla_requirements": get_sla_requirements,
     "get_communication_templates": get_communication_templates,
     "get_stakeholder_list": get_stakeholder_list,
+    # Communication tools
+    "propose_slack_message": propose_slack_message,
+    "draft_external_communication": draft_external_communication,
+    "skip_communication": skip_communication,
 }
 
 
@@ -151,13 +157,18 @@ def parse_json_response(response: str) -> dict:
     return json.loads(response)
 
 
+def get_all_tools(config: dict) -> list:
+    """Get unified tool pool from config."""
+    return config["tools"]["all_tools"]
+
+
 @mlflow.trace(span_type=SpanType.AGENT)
 def classify_incident(client, provider: str, model: str,
                       incident: Incident, config: dict) -> Classification:
-    """Classify the incident using tools from config."""
+    """Classify the incident using unified tool pool."""
     prompt = config["agents"]["classifier"]["prompt"].format(incident=incident.model_dump_json())
     messages = [{"role": "user", "content": prompt}]
-    tools = config["tools"]["classifier"]
+    tools = get_all_tools(config)  # All tools available
 
     response = call_with_tools(client, provider, model, messages, tools,
                                config["agents"]["classifier"]["temperature"],
@@ -168,13 +179,13 @@ def classify_incident(client, provider: str, model: str,
 @mlflow.trace(span_type=SpanType.AGENT)
 def assess_impact(client, provider: str, model: str, incident: Incident,
                   classification: Classification, config: dict) -> ImpactAssessment:
-    """Assess impact using tools from config."""
+    """Assess impact using unified tool pool."""
     prompt = config["agents"]["impact_assessor"]["prompt"].format(
         classification=classification.model_dump_json(),
         incident=incident.model_dump_json()
     )
     messages = [{"role": "user", "content": prompt}]
-    tools = config["tools"]["impact_assessor"]
+    tools = get_all_tools(config)  # All tools available
 
     response = call_with_tools(client, provider, model, messages, tools,
                                config["agents"]["impact_assessor"]["temperature"],
@@ -186,13 +197,13 @@ def assess_impact(client, provider: str, model: str, incident: Incident,
 def match_resources(client, provider: str, model: str,
                     classification: Classification,
                     impact: ImpactAssessment, config: dict) -> ResourceAssignment:
-    """Match resources using tools from config."""
+    """Match resources using unified tool pool."""
     prompt = config["agents"]["resource_matcher"]["prompt"].format(
         classification=classification.model_dump_json(),
         impact=impact.model_dump_json()
     )
     messages = [{"role": "user", "content": prompt}]
-    tools = config["tools"]["resource_matcher"]
+    tools = get_all_tools(config)  # All tools available
 
     response = call_with_tools(client, provider, model, messages, tools,
                                config["agents"]["resource_matcher"]["temperature"],
@@ -207,7 +218,7 @@ def match_resources(client, provider: str, model: str,
 def draft_response(client, provider: str, model: str, incident: Incident,
                    classification: Classification, impact: ImpactAssessment,
                    resources: ResourceAssignment, config: dict) -> ResponsePlan:
-    """Draft response using tools from config."""
+    """Draft response using unified tool pool with autonomous communication decisions."""
     prompt = config["agents"]["response_drafter"]["prompt"].format(
         incident=incident.model_dump_json(),
         classification=classification.model_dump_json(),
@@ -215,7 +226,7 @@ def draft_response(client, provider: str, model: str, incident: Incident,
         resources=resources.model_dump_json()
     )
     messages = [{"role": "user", "content": prompt}]
-    tools = config["tools"]["response_drafter"]
+    tools = get_all_tools(config)  # All tools available
 
     response = call_with_tools(client, provider, model, messages, tools,
                                config["agents"]["response_drafter"]["temperature"],
