@@ -1,0 +1,10 @@
+name: openai-gpt4o-mini
+provider: openai
+model: gpt-4o-mini
+type: api
+
+prompt_type: standard
+temperature: 0.3
+max_tokens: 1500
+
+description: OpenAI GPT-4o-mini with standard multi-agent prompts

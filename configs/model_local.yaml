@@ -1,0 +1,12 @@
+name: qwen-2.5-3b-instruct
+provider: local
+model: ""
+type: local
+endpoint: https://genai-llm.domino-eval.com/endpoints/bf209962-1bd0-4524-87c8-2d0ac662a022/v1
+
+prompt_type: strict_few_shot
+temperature: 0.1
+max_tokens: 1000
+few_shot_count: 2
+
+description: Qwen 2.5 3B Instruct with strict prompts and few-shot learning from frontier models

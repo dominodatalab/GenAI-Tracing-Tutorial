@@ -350,13 +350,20 @@ def main():
             st.rerun()
 
     if run and ticket:
+        # Helper to handle NaN values from CSV
+        def safe_get(d, key, default=None):
+            val = d.get(key, default)
+            if pd.isna(val):
+                return default
+            return val
+
         incident = Incident(
             ticket_id=ticket["ticket_id"],
             description=ticket["description"],
-            source=IncidentSource(ticket.get("source", "monitoring")),
-            reporter=ticket.get("reporter"),
-            affected_system=ticket.get("affected_system"),
-            initial_severity=ticket.get("initial_severity")
+            source=IncidentSource(safe_get(ticket, "source", "monitoring")),
+            reporter=safe_get(ticket, "reporter"),
+            affected_system=safe_get(ticket, "affected_system"),
+            initial_severity=safe_get(ticket, "initial_severity")
         )
 
         try:

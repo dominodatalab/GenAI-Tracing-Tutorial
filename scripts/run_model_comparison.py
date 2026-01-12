@@ -5,10 +5,12 @@ TriageFlow Model Comparison Experiment
 Compares frontier models (OpenAI, Anthropic) against local Qwen model
 with few-shot learning from frontier outputs.
 
+Each model gets its own DominoRun with full tracing and metrics logging.
+
 Workflow:
 1. Run frontier models on sample incidents to generate high-quality outputs
 2. Use those outputs as few-shot examples for the local Qwen model
-3. Run all three models on test incidents
+3. Run all three models on test incidents (each as separate DominoRun)
 4. Evaluate with LLM judges and compare results
 
 Usage:
@@ -18,9 +20,12 @@ Usage:
 """
 
 import argparse
+import copy
+import io
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field, asdict
@@ -29,14 +34,36 @@ sys.path.insert(0, "/mnt/code")
 
 import mlflow
 import pandas as pd
+import requests
 import yaml
 
-from src.models import Incident, IncidentSource, Classification, ImpactAssessment, ResourceAssignment, ResponsePlan
+from domino.agents.tracing import add_tracing
+from domino.agents.logging import DominoRun
+
+from src.models import (
+    Incident, IncidentSource, Classification, ImpactAssessment,
+    ResourceAssignment, ResponsePlan
+)
 from src.agents import (
     classify_incident, assess_impact, match_resources, draft_response,
     call_with_tools, parse_json_response, get_all_tools
 )
 from src.judges import judge_classification, judge_response, judge_triage
+
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+CONFIG_PATH = "/mnt/code/configs/agents.yaml"
+LOCAL_ENDPOINT = "https://genai-llm.domino-eval.com/endpoints/bf209962-1bd0-4524-87c8-2d0ac662a022/v1"
+
+# Model-specific config files
+MODEL_CONFIGS = {
+    "openai": "/mnt/code/configs/model_openai.yaml",
+    "anthropic": "/mnt/code/configs/model_anthropic.yaml",
+    "local": "/mnt/code/configs/model_local.yaml",
+}
 
 
 # =============================================================================
@@ -94,26 +121,11 @@ class FewShotBank:
             return cls.from_dict(json.load(f))
 
 
-@dataclass
-class ModelResult:
-    """Results from running one model on one incident."""
-    model_name: str
-    provider: str
-    ticket_id: str
-    classification: Optional[dict] = None
-    impact: Optional[dict] = None
-    resources: Optional[dict] = None
-    response: Optional[dict] = None
-    judge_scores: Dict[str, float] = field(default_factory=dict)
-    error: Optional[str] = None
-    duration_seconds: float = 0.0
-
-
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
 
-def load_config(config_path: str = "/mnt/code/configs/agents.yaml") -> dict:
+def load_config(config_path: str = CONFIG_PATH) -> dict:
     """Load configuration."""
     with open(config_path) as f:
         return yaml.safe_load(f)
@@ -152,7 +164,7 @@ def load_incidents(path: str, limit: int = None) -> List[Incident]:
     return incidents
 
 
-def get_client(provider: str):
+def get_client(provider: str, config: dict = None):
     """Initialize LLM client."""
     if provider == "openai":
         from openai import OpenAI
@@ -162,13 +174,10 @@ def get_client(provider: str):
         return Anthropic()
     elif provider == "local":
         from openai import OpenAI
-        import requests
-        config = load_config()
-        endpoint = config["models"]["local"]["endpoint"]
         # Get access token from Domino's local token service
         api_key = requests.get("http://localhost:8899/access-token").text
         return OpenAI(
-            base_url=endpoint,
+            base_url=LOCAL_ENDPOINT,
             api_key=api_key
         )
     else:
@@ -191,6 +200,23 @@ def format_few_shot_for_prompt(examples: List[FewShotExample]) -> str:
     return "\n".join(parts)
 
 
+def pipeline_evaluator(span) -> dict:
+    """Extract metrics from pipeline outputs for DominoRun."""
+    outputs = span.outputs or {}
+    if not hasattr(outputs, "get"):
+        return {}
+
+    return {
+        "classification_confidence": outputs.get("classification_confidence", 0.5),
+        "impact_score": outputs.get("impact_score", 5.0),
+        "resource_match_score": outputs.get("resource_match_score", 0.5),
+        "completeness_score": outputs.get("completeness_score", 0.5),
+        "classification_judge_score": outputs.get("classification_judge_score", 3),
+        "response_judge_score": outputs.get("response_judge_score", 3),
+        "triage_judge_score": outputs.get("triage_judge_score", 3),
+    }
+
+
 # =============================================================================
 # PHASE 1: GENERATE FEW-SHOT EXAMPLES FROM FRONTIER MODELS
 # =============================================================================
@@ -200,17 +226,7 @@ def generate_few_shot_examples(
     config: dict,
     providers: List[str] = ["openai", "anthropic"]
 ) -> FewShotBank:
-    """
-    Run frontier models on sample incidents to generate few-shot examples.
-
-    Args:
-        incidents: Sample incidents to process
-        config: Agent configuration
-        providers: Which frontier providers to use
-
-    Returns:
-        FewShotBank with examples from all agents
-    """
+    """Run frontier models on sample incidents to generate few-shot examples."""
     bank = FewShotBank()
 
     for provider in providers:
@@ -218,7 +234,7 @@ def generate_few_shot_examples(
         print(f"Generating examples from {provider.upper()}")
         print(f"{'='*60}")
 
-        client = get_client(provider)
+        client = get_client(provider, config)
         model_config = config["models"][provider]
         model = model_config["name"] if isinstance(model_config, dict) else model_config
 
@@ -226,7 +242,6 @@ def generate_few_shot_examples(
             print(f"\n  Processing {incident.ticket_id}...")
 
             try:
-                # Classifier
                 classification = classify_incident(client, provider, model, incident, config)
                 bank.add(FewShotExample(
                     agent="classifier",
@@ -237,7 +252,6 @@ def generate_few_shot_examples(
                 ))
                 print(f"    Classifier: {classification.category.value} (urgency={classification.urgency})")
 
-                # Impact Assessor
                 impact = assess_impact(client, provider, model, incident, classification, config)
                 bank.add(FewShotExample(
                     agent="impact_assessor",
@@ -248,7 +262,6 @@ def generate_few_shot_examples(
                 ))
                 print(f"    Impact: score={impact.impact_score}, radius={impact.blast_radius}")
 
-                # Resource Matcher
                 resources = match_resources(client, provider, model, classification, impact, config)
                 bank.add(FewShotExample(
                     agent="resource_matcher",
@@ -259,11 +272,10 @@ def generate_few_shot_examples(
                 ))
                 print(f"    Resources: {resources.primary_responder.name}")
 
-                # Response Drafter
                 response = draft_response(client, provider, model, incident, classification, impact, resources, config)
                 bank.add(FewShotExample(
                     agent="response_drafter",
-                    input_text=f"Incident: {incident.description}\nClassification: {classification.model_dump_json()}\nImpact: {impact.model_dump_json()}",
+                    input_text=f"Incident: {incident.description}",
                     output_json=response.model_dump(),
                     source_model=f"{provider}/{model}",
                     ticket_id=incident.ticket_id
@@ -276,249 +288,320 @@ def generate_few_shot_examples(
                 continue
 
     print(f"\n  Generated {len(bank.classifier)} classifier examples")
-    print(f"  Generated {len(bank.impact_assessor)} impact assessor examples")
-    print(f"  Generated {len(bank.resource_matcher)} resource matcher examples")
-    print(f"  Generated {len(bank.response_drafter)} response drafter examples")
-
     return bank
 
 
 # =============================================================================
-# PHASE 2: RUN LOCAL MODEL WITH FEW-SHOT
+# PHASE 2: CREATE TRACED PIPELINE FUNCTIONS
 # =============================================================================
 
-def run_local_with_few_shot(
-    client,
-    incident: Incident,
-    config: dict,
-    few_shot_bank: FewShotBank,
-    few_shot_count: int = 2
-) -> Dict[str, Any]:
-    """
-    Run the local Qwen model using strict prompts with few-shot examples.
+def create_frontier_pipeline(client, provider: str, model: str, config: dict, judge_client):
+    """Create a traced pipeline function for frontier models."""
 
-    Args:
-        client: OpenAI-compatible client pointing to local endpoint
-        incident: Incident to process
-        config: Full configuration
-        few_shot_bank: Bank of few-shot examples
-        few_shot_count: Number of examples to include per agent
+    @add_tracing(name="triage_incident", autolog_frameworks=[provider], evaluator=pipeline_evaluator)
+    def triage_incident(incident: Incident) -> dict:
+        """Run the 4-agent triage pipeline with judges."""
+        # Run agents
+        classification = classify_incident(client, provider, model, incident, config)
+        impact = assess_impact(client, provider, model, incident, classification, config)
+        resources = match_resources(client, provider, model, classification, impact, config)
+        response = draft_response(client, provider, model, incident, classification, impact, resources, config)
 
-    Returns:
-        Dict with classification, impact, resources, response
-    """
-    local_config = config.get("local_prompts", config["agents"])
-    # Local Qwen endpoint expects empty string for model
-    model = ""
-    results = {}
+        # Convert to dicts
+        class_dict = classification.model_dump()
+        impact_dict = impact.model_dump()
+        resources_dict = resources.model_dump()
+        response_dict = response.model_dump()
 
-    # Classifier with few-shot
-    classifier_examples = few_shot_bank.get_examples("classifier", few_shot_count)
-    few_shot_text = format_few_shot_for_prompt(classifier_examples)
-    prompt = local_config["classifier"]["prompt"].format(
-        few_shot_examples=few_shot_text,
-        incident=incident.model_dump_json()
-    )
+        # Run judges
+        class_judge = judge_classification(judge_client, "openai", incident.description, class_dict)
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=local_config["classifier"]["temperature"],
-        max_tokens=local_config["classifier"]["max_tokens"]
-    )
-    classification = Classification(**parse_json_response(response.choices[0].message.content))
-    results["classification"] = classification
-
-    # Impact Assessor with few-shot
-    impact_examples = few_shot_bank.get_examples("impact_assessor", few_shot_count)
-    few_shot_text = format_few_shot_for_prompt(impact_examples)
-    prompt = local_config["impact_assessor"]["prompt"].format(
-        few_shot_examples=few_shot_text,
-        incident=incident.model_dump_json(),
-        classification=classification.model_dump_json()
-    )
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=local_config["impact_assessor"]["temperature"],
-        max_tokens=local_config["impact_assessor"]["max_tokens"]
-    )
-    impact = ImpactAssessment(**parse_json_response(response.choices[0].message.content))
-    results["impact"] = impact
-
-    # Resource Matcher with few-shot
-    resource_examples = few_shot_bank.get_examples("resource_matcher", few_shot_count)
-    few_shot_text = format_few_shot_for_prompt(resource_examples)
-    prompt = local_config["resource_matcher"]["prompt"].format(
-        few_shot_examples=few_shot_text,
-        classification=classification.model_dump_json(),
-        impact=impact.model_dump_json()
-    )
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=local_config["resource_matcher"]["temperature"],
-        max_tokens=local_config["resource_matcher"]["max_tokens"]
-    )
-    resources = ResourceAssignment(**parse_json_response(response.choices[0].message.content))
-    results["resources"] = resources
-
-    # Response Drafter with few-shot
-    response_examples = few_shot_bank.get_examples("response_drafter", few_shot_count)
-    few_shot_text = format_few_shot_for_prompt(response_examples)
-    prompt = local_config["response_drafter"]["prompt"].format(
-        few_shot_examples=few_shot_text,
-        incident=incident.model_dump_json(),
-        classification=classification.model_dump_json(),
-        impact=impact.model_dump_json(),
-        resources=resources.model_dump_json()
-    )
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=local_config["response_drafter"]["temperature"],
-        max_tokens=local_config["response_drafter"]["max_tokens"]
-    )
-    response_plan = ResponsePlan(**parse_json_response(response.choices[0].message.content))
-    results["response"] = response_plan
-
-    return results
-
-
-# =============================================================================
-# PHASE 3: FULL COMPARISON
-# =============================================================================
-
-def run_comparison(
-    test_incidents: List[Incident],
-    config: dict,
-    few_shot_bank: FewShotBank,
-    few_shot_count: int = 2
-) -> List[ModelResult]:
-    """
-    Run all three models on test incidents and collect results.
-
-    Args:
-        test_incidents: Incidents to test on
-        config: Full configuration
-        few_shot_bank: Few-shot examples for local model
-        few_shot_count: Number of examples for local model
-
-    Returns:
-        List of ModelResult for each model/incident combination
-    """
-    results = []
-    models_to_test = [
-        ("openai", "openai"),
-        ("anthropic", "anthropic"),
-        ("local", "local")  # Will use few-shot
-    ]
-
-    for incident in test_incidents:
-        print(f"\n{'='*60}")
-        print(f"Testing: {incident.ticket_id}")
-        print(f"{'='*60}")
-
-        for provider, model_key in models_to_test:
-            import time
-            start = time.time()
-
-            model_config = config["models"][model_key]
-            model_name = model_config["name"] if isinstance(model_config, dict) else model_config
-
-            print(f"\n  {provider.upper()} ({model_name})...")
-
-            result = ModelResult(
-                model_name=model_name,
-                provider=provider,
-                ticket_id=incident.ticket_id
+        resp_judge = {"score": 3}
+        if response.communications:
+            resp_judge = judge_response(
+                judge_client, "openai", incident.description,
+                classification.urgency, response.communications[0].model_dump()
             )
 
+        triage_judge = judge_triage(
+            judge_client, "openai", incident.description,
+            class_dict, impact_dict, resources_dict, response_dict
+        )
+
+        return {
+            "classification": classification,
+            "impact": impact,
+            "resources": resources,
+            "response": response,
+            # Metrics for evaluator
+            "classification_confidence": class_dict.get("confidence", 0.5),
+            "impact_score": impact_dict.get("impact_score", 5.0),
+            "resource_match_score": resources_dict.get("primary_responder", {}).get("match_score", 0.5),
+            "completeness_score": response_dict.get("completeness_score", 0.5),
+            "classification_judge_score": class_judge.get("score", 3),
+            "response_judge_score": resp_judge.get("score", 3),
+            "triage_judge_score": triage_judge.get("score", 3),
+        }
+
+    return triage_incident
+
+
+def create_local_pipeline(client, config: dict, few_shot_bank: FewShotBank, few_shot_count: int, judge_client):
+    """Create a traced pipeline function for local model with few-shot."""
+
+    local_config = config.get("local_prompts", config["agents"])
+    model = ""  # Local endpoint expects empty string
+
+    @add_tracing(name="triage_incident", autolog_frameworks=["openai"], evaluator=pipeline_evaluator)
+    def triage_incident(incident: Incident) -> dict:
+        """Run the 4-agent triage pipeline with few-shot examples."""
+
+        # Classifier with few-shot
+        classifier_examples = few_shot_bank.get_examples("classifier", few_shot_count)
+        few_shot_text = format_few_shot_for_prompt(classifier_examples)
+        prompt = local_config["classifier"]["prompt"].format(
+            few_shot_examples=few_shot_text,
+            incident=incident.model_dump_json()
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=local_config["classifier"]["temperature"],
+            max_tokens=local_config["classifier"]["max_tokens"]
+        )
+        classification = Classification(**parse_json_response(response.choices[0].message.content))
+
+        # Impact Assessor with few-shot
+        impact_examples = few_shot_bank.get_examples("impact_assessor", few_shot_count)
+        few_shot_text = format_few_shot_for_prompt(impact_examples)
+        prompt = local_config["impact_assessor"]["prompt"].format(
+            few_shot_examples=few_shot_text,
+            incident=incident.model_dump_json(),
+            classification=classification.model_dump_json()
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=local_config["impact_assessor"]["temperature"],
+            max_tokens=local_config["impact_assessor"]["max_tokens"]
+        )
+        impact = ImpactAssessment(**parse_json_response(response.choices[0].message.content))
+
+        # Resource Matcher with few-shot
+        resource_examples = few_shot_bank.get_examples("resource_matcher", few_shot_count)
+        few_shot_text = format_few_shot_for_prompt(resource_examples)
+        prompt = local_config["resource_matcher"]["prompt"].format(
+            few_shot_examples=few_shot_text,
+            classification=classification.model_dump_json(),
+            impact=impact.model_dump_json()
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=local_config["resource_matcher"]["temperature"],
+            max_tokens=local_config["resource_matcher"]["max_tokens"]
+        )
+        resources = ResourceAssignment(**parse_json_response(response.choices[0].message.content))
+
+        # Response Drafter with few-shot
+        response_examples = few_shot_bank.get_examples("response_drafter", few_shot_count)
+        few_shot_text = format_few_shot_for_prompt(response_examples)
+        prompt = local_config["response_drafter"]["prompt"].format(
+            few_shot_examples=few_shot_text,
+            incident=incident.model_dump_json(),
+            classification=classification.model_dump_json(),
+            impact=impact.model_dump_json(),
+            resources=resources.model_dump_json()
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=local_config["response_drafter"]["temperature"],
+            max_tokens=local_config["response_drafter"]["max_tokens"]
+        )
+        response_plan = ResponsePlan(**parse_json_response(response.choices[0].message.content))
+
+        # Convert to dicts
+        class_dict = classification.model_dump()
+        impact_dict = impact.model_dump()
+        resources_dict = resources.model_dump()
+        response_dict = response_plan.model_dump()
+
+        # Run judges
+        class_judge = judge_classification(judge_client, "openai", incident.description, class_dict)
+
+        resp_judge = {"score": 3}
+        if response_plan.communications:
+            resp_judge = judge_response(
+                judge_client, "openai", incident.description,
+                classification.urgency, response_plan.communications[0].model_dump()
+            )
+
+        triage_judge = judge_triage(
+            judge_client, "openai", incident.description,
+            class_dict, impact_dict, resources_dict, response_dict
+        )
+
+        return {
+            "classification": classification,
+            "impact": impact,
+            "resources": resources,
+            "response": response_plan,
+            # Metrics
+            "classification_confidence": class_dict.get("confidence", 0.5),
+            "impact_score": impact_dict.get("impact_score", 5.0),
+            "resource_match_score": resources_dict.get("primary_responder", {}).get("match_score", 0.5),
+            "completeness_score": response_dict.get("completeness_score", 0.5),
+            "classification_judge_score": class_judge.get("score", 3),
+            "response_judge_score": resp_judge.get("score", 3),
+            "triage_judge_score": triage_judge.get("score", 3),
+        }
+
+    return triage_incident
+
+
+# =============================================================================
+# PHASE 3: RUN COMPARISON WITH DOMINO LOGGING
+# =============================================================================
+
+def load_model_config(provider: str) -> dict:
+    """Load model-specific configuration."""
+    config_path = MODEL_CONFIGS.get(provider)
+    if config_path and os.path.exists(config_path):
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    return {}
+
+
+def run_model_experiment(
+    provider: str,
+    model_name: str,
+    incidents: List[Incident],
+    config: dict,
+    few_shot_bank: Optional[FewShotBank] = None,
+    few_shot_count: int = 2
+) -> List[dict]:
+    """
+    Run a single model experiment with full Domino tracing.
+
+    Creates its own DominoRun with parameters and metrics logged.
+    """
+    results = []
+
+    # Load model-specific config
+    model_config = load_model_config(provider)
+    model_config_path = MODEL_CONFIGS.get(provider, CONFIG_PATH)
+
+    # Get clients
+    client = get_client(provider, config)
+    judge_client = get_client("openai", config)
+
+    # Create pipeline function
+    if provider == "local":
+        triage_fn = create_local_pipeline(client, config, few_shot_bank, few_shot_count, judge_client)
+    else:
+        triage_fn = create_frontier_pipeline(client, provider, model_name, config, judge_client)
+
+    # Aggregated metrics for DominoRun
+    aggregated_metrics = [
+        ("classification_confidence", "mean"),
+        ("impact_score", "median"),
+        ("resource_match_score", "mean"),
+        ("completeness_score", "mean"),
+        ("classification_judge_score", "mean"),
+        ("response_judge_score", "mean"),
+        ("triage_judge_score", "mean"),
+    ]
+
+    # Get username for experiment name
+    username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "unknown"))
+
+    # Set experiment name
+    experiment_name = f"agent-workflow-{username}"
+    mlflow.set_experiment(experiment_name)
+
+    # Run with DominoRun for proper Domino integration
+    with DominoRun(agent_config_path=model_config_path, custom_summary_metrics=aggregated_metrics) as run:
+        # Set run name and tags
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        run_name = model_config.get("name", f"{provider}-{model_name}")
+        mlflow.set_tag("mlflow.runName", f"{run_name}-{timestamp}")
+        mlflow.set_tag("mode", "model_comparison")
+        mlflow.set_tag("provider", provider)
+        mlflow.set_tag("model", model_name)
+        mlflow.set_tag("config_name", model_config.get("name", "unknown"))
+
+        # Log parameters from model config
+        mlflow.log_param("name", model_config.get("name", model_name))
+        mlflow.log_param("provider", provider)
+        mlflow.log_param("model", model_config.get("model", model_name))
+        mlflow.log_param("prompt_type", model_config.get("prompt_type", "standard"))
+        mlflow.log_param("temperature", model_config.get("temperature", 0.3))
+        mlflow.log_param("num_incidents", len(incidents))
+
+        if provider == "local":
+            mlflow.log_param("few_shot_count", model_config.get("few_shot_count", few_shot_count))
+            mlflow.set_tag("prompt_type", "strict_few_shot")
+        else:
+            mlflow.set_tag("prompt_type", "standard")
+
+        # Process each incident
+        for incident in incidents:
+            print(f"    Processing {incident.ticket_id}...")
+            start = time.time()
+
             try:
-                client = get_client(provider)
+                result = triage_fn(incident)
+                duration = time.time() - start
 
-                if provider == "local":
-                    # Use few-shot approach for local model
-                    outputs = run_local_with_few_shot(
-                        client, incident, config, few_shot_bank, few_shot_count
-                    )
-                    classification = outputs["classification"]
-                    impact = outputs["impact"]
-                    resources = outputs["resources"]
-                    response = outputs["response"]
-                else:
-                    # Standard approach for frontier models
-                    classification = classify_incident(client, provider, model_name, incident, config)
-                    impact = assess_impact(client, provider, model_name, incident, classification, config)
-                    resources = match_resources(client, provider, model_name, classification, impact, config)
-                    response = draft_response(client, provider, model_name, incident, classification, impact, resources, config)
+                results.append({
+                    "ticket_id": incident.ticket_id,
+                    "category": result["classification"].category.value,
+                    "urgency": result["classification"].urgency,
+                    "impact_score": result["impact"].impact_score,
+                    "blast_radius": result["impact"].blast_radius,
+                    "classification_judge": result["classification_judge_score"],
+                    "response_judge": result["response_judge_score"],
+                    "triage_judge": result["triage_judge_score"],
+                    "duration_sec": round(duration, 2),
+                    "error": None
+                })
 
-                result.classification = classification.model_dump()
-                result.impact = impact.model_dump()
-                result.resources = resources.model_dump()
-                result.response = response.model_dump()
-
-                # Run judges (use frontier model for judging)
-                judge_client = get_client("openai")
-
-                class_judge = judge_classification(
-                    judge_client, "openai", incident.description, result.classification
-                )
-                result.judge_scores["classification"] = class_judge.get("score", 0)
-
-                if response.communications:
-                    resp_judge = judge_response(
-                        judge_client, "openai", incident.description,
-                        classification.urgency, response.communications[0].model_dump()
-                    )
-                    result.judge_scores["response"] = resp_judge.get("score", 0)
-
-                triage_judge = judge_triage(
-                    judge_client, "openai", incident.description,
-                    result.classification, result.impact,
-                    result.resources, result.response
-                )
-                result.judge_scores["triage"] = triage_judge.get("score", 0)
-
-                print(f"    Category: {classification.category.value}")
-                print(f"    Urgency: {classification.urgency}")
-                print(f"    Impact: {impact.impact_score}")
-                print(f"    Judge scores: {result.judge_scores}")
+                print(f"      Category: {result['classification'].category.value}, "
+                      f"Urgency: {result['classification'].urgency}, "
+                      f"Judges: C={result['classification_judge_score']}, "
+                      f"R={result['response_judge_score']}, T={result['triage_judge_score']}")
 
             except Exception as e:
-                result.error = str(e)
-                print(f"    ERROR: {e}")
+                duration = time.time() - start
+                results.append({
+                    "ticket_id": incident.ticket_id,
+                    "category": None,
+                    "urgency": None,
+                    "impact_score": None,
+                    "blast_radius": None,
+                    "classification_judge": None,
+                    "response_judge": None,
+                    "triage_judge": None,
+                    "duration_sec": round(duration, 2),
+                    "error": str(e)
+                })
+                print(f"      ERROR: {e}")
 
-            result.duration_seconds = time.time() - start
-            results.append(result)
+        # Log aggregate metrics
+        successful = [r for r in results if r["error"] is None]
+        if successful:
+            mlflow.log_metric("avg_classification_judge", sum(r["classification_judge"] for r in successful) / len(successful))
+            mlflow.log_metric("avg_triage_judge", sum(r["triage_judge"] for r in successful) / len(successful))
+            mlflow.log_metric("avg_duration_sec", sum(r["duration_sec"] for r in successful) / len(successful))
+            mlflow.log_metric("success_rate", len(successful) / len(results))
 
+        # Suppress DominoRun exit messages
+        _stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+    sys.stdout = _stdout
     return results
-
-
-def summarize_results(results: List[ModelResult]) -> pd.DataFrame:
-    """Create summary DataFrame from results."""
-    rows = []
-    for r in results:
-        row = {
-            "ticket_id": r.ticket_id,
-            "model": r.model_name,
-            "provider": r.provider,
-            "category": r.classification.get("category") if r.classification else None,
-            "urgency": r.classification.get("urgency") if r.classification else None,
-            "impact_score": r.impact.get("impact_score") if r.impact else None,
-            "blast_radius": r.impact.get("blast_radius") if r.impact else None,
-            "judge_classification": r.judge_scores.get("classification"),
-            "judge_response": r.judge_scores.get("response"),
-            "judge_triage": r.judge_scores.get("triage"),
-            "duration_sec": round(r.duration_seconds, 2),
-            "error": r.error
-        }
-        rows.append(row)
-
-    return pd.DataFrame(rows)
 
 
 # =============================================================================
@@ -528,9 +611,9 @@ def summarize_results(results: List[ModelResult]) -> pd.DataFrame:
 def parse_args():
     parser = argparse.ArgumentParser(description="Run model comparison experiment")
     parser.add_argument("--few-shot-incidents", type=int, default=3,
-                        help="Number of incidents to use for generating few-shot examples")
+                        help="Number of incidents for generating few-shot examples")
     parser.add_argument("--few-shot-count", type=int, default=2,
-                        help="Number of few-shot examples to include in local model prompts")
+                        help="Number of few-shot examples per agent for local model")
     parser.add_argument("--test-incidents", type=int, default=5,
                         help="Number of incidents to test on")
     parser.add_argument("--data-path", type=str, default="/mnt/code/example-data/financial_services.csv",
@@ -539,6 +622,8 @@ def parse_args():
                         help="Skip frontier generation, use cached examples")
     parser.add_argument("--cache-path", type=str, default="/tmp/few_shot_cache.json",
                         help="Path to cache few-shot examples")
+    parser.add_argument("--models", type=str, default="openai,anthropic,local",
+                        help="Comma-separated list of models to test")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would run without executing")
     return parser.parse_args()
@@ -548,12 +633,13 @@ def main():
     args = parse_args()
     config = load_config()
 
-    print("="*70)
+    print("=" * 70)
     print("TRIAGEFLOW MODEL COMPARISON EXPERIMENT")
-    print("="*70)
+    print("=" * 70)
     print(f"Few-shot generation incidents: {args.few_shot_incidents}")
     print(f"Few-shot examples per agent: {args.few_shot_count}")
     print(f"Test incidents: {args.test_incidents}")
+    print(f"Models to test: {args.models}")
     print(f"Data path: {args.data_path}")
     print()
 
@@ -565,6 +651,7 @@ def main():
         print("\n[DRY RUN] Would process:")
         print(f"  - {args.few_shot_incidents} incidents for few-shot generation")
         print(f"  - {args.test_incidents} incidents for testing")
+        print(f"  - Models: {args.models}")
         return
 
     # Split into few-shot generation set and test set
@@ -574,75 +661,86 @@ def main():
     print(f"Few-shot incidents: {[i.ticket_id for i in few_shot_incidents]}")
     print(f"Test incidents: {[i.ticket_id for i in test_incidents]}")
 
-    # Phase 1: Generate few-shot examples
+    # Phase 1: Generate or load few-shot examples
     if args.skip_frontier and os.path.exists(args.cache_path):
         print(f"\nLoading cached few-shot examples from {args.cache_path}")
         few_shot_bank = FewShotBank.load(args.cache_path)
     else:
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("PHASE 1: GENERATING FEW-SHOT EXAMPLES FROM FRONTIER MODELS")
-        print("="*70)
+        print("=" * 70)
         few_shot_bank = generate_few_shot_examples(few_shot_incidents, config)
-
-        # Cache the examples
-        os.makedirs(os.path.dirname(args.cache_path), exist_ok=True)
         few_shot_bank.save(args.cache_path)
         print(f"\nCached few-shot examples to {args.cache_path}")
 
-    # Phase 2 & 3: Run comparison
-    print("\n" + "="*70)
-    print("PHASE 2 & 3: RUNNING MODEL COMPARISON")
-    print("="*70)
+    # Phase 2: Run comparison - each model gets its own DominoRun
+    print("\n" + "=" * 70)
+    print("PHASE 2: RUNNING MODEL EXPERIMENTS (each model = separate DominoRun)")
+    print("=" * 70)
 
-    # Set up MLflow
-    experiment_name = f"model-comparison-{os.environ.get('DOMINO_PROJECT_NAME', 'local')}"
-    mlflow.set_experiment(experiment_name)
+    models_to_test = args.models.split(",")
+    all_results = {}
 
-    with mlflow.start_run(run_name=f"comparison-{datetime.now().strftime('%Y%m%d-%H%M%S')}"):
-        mlflow.log_param("few_shot_incidents", args.few_shot_incidents)
-        mlflow.log_param("few_shot_count", args.few_shot_count)
-        mlflow.log_param("test_incidents", args.test_incidents)
-        mlflow.log_param("data_path", args.data_path)
+    for model_key in models_to_test:
+        model_key = model_key.strip()
+        model_config = config["models"].get(model_key, {})
+        model_name = model_config.get("name", model_key) if isinstance(model_config, dict) else model_config
 
-        results = run_comparison(test_incidents, config, few_shot_bank, args.few_shot_count)
+        print(f"\n{'='*60}")
+        print(f"Running {model_key.upper()} ({model_name})")
+        print(f"{'='*60}")
 
-        # Summarize
-        summary_df = summarize_results(results)
+        results = run_model_experiment(
+            provider=model_key,
+            model_name=model_name,
+            incidents=test_incidents,
+            config=config,
+            few_shot_bank=few_shot_bank if model_key == "local" else None,
+            few_shot_count=args.few_shot_count
+        )
 
-        print("\n" + "="*70)
-        print("RESULTS SUMMARY")
-        print("="*70)
-        print(summary_df.to_string(index=False))
+        all_results[model_key] = results
 
-        # Aggregate by model
-        print("\n" + "-"*40)
-        print("AVERAGE SCORES BY MODEL")
-        print("-"*40)
-        model_summary = summary_df.groupby("provider").agg({
-            "judge_classification": "mean",
-            "judge_response": "mean",
-            "judge_triage": "mean",
-            "duration_sec": "mean"
-        }).round(2)
-        print(model_summary)
+    # Phase 3: Summary
+    print("\n" + "=" * 70)
+    print("RESULTS SUMMARY")
+    print("=" * 70)
 
-        # Log to MLflow
-        for provider in ["openai", "anthropic", "local"]:
-            provider_results = summary_df[summary_df["provider"] == provider]
-            if len(provider_results) > 0:
-                mlflow.log_metric(f"{provider}_avg_classification", provider_results["judge_classification"].mean())
-                mlflow.log_metric(f"{provider}_avg_triage", provider_results["judge_triage"].mean())
-                mlflow.log_metric(f"{provider}_avg_duration", provider_results["duration_sec"].mean())
+    # Create summary DataFrame
+    rows = []
+    for model_key, results in all_results.items():
+        for r in results:
+            rows.append({
+                "model": model_key,
+                **r
+            })
 
-        # Save results
-        results_path = f"/tmp/comparison_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        summary_df.to_csv(results_path, index=False)
-        mlflow.log_artifact(results_path)
-        print(f"\nResults saved to {results_path}")
+    summary_df = pd.DataFrame(rows)
+    print(summary_df.to_string(index=False))
 
-    print("\n" + "="*70)
-    print("EXPERIMENT COMPLETE")
-    print("="*70)
+    # Aggregate by model
+    print("\n" + "-" * 40)
+    print("AVERAGE SCORES BY MODEL")
+    print("-" * 40)
+
+    for model_key, results in all_results.items():
+        successful = [r for r in results if r["error"] is None]
+        if successful:
+            avg_class = sum(r["classification_judge"] for r in successful) / len(successful)
+            avg_triage = sum(r["triage_judge"] for r in successful) / len(successful)
+            avg_duration = sum(r["duration_sec"] for r in successful) / len(successful)
+            success_rate = len(successful) / len(results)
+            print(f"{model_key:12} | Class: {avg_class:.2f} | Triage: {avg_triage:.2f} | "
+                  f"Duration: {avg_duration:.1f}s | Success: {success_rate:.0%}")
+
+    # Save results
+    results_path = f"/tmp/model_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    summary_df.to_csv(results_path, index=False)
+    print(f"\nResults saved to {results_path}")
+
+    print("\n" + "=" * 70)
+    print("EXPERIMENT COMPLETE - View runs in Domino Experiment Manager")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

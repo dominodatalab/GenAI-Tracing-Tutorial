@@ -1,0 +1,10 @@
+name: anthropic-claude-sonnet
+provider: anthropic
+model: claude-sonnet-4-20250514
+type: api
+
+prompt_type: standard
+temperature: 0.3
+max_tokens: 1500
+
+description: Anthropic Claude Sonnet with standard multi-agent prompts
