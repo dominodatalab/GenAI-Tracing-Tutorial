@@ -75,19 +75,18 @@ See [Deploy Agentic Systems](https://docs.dominodatalab.com/en/cloud/user_guide/
 
 ### Scheduled Evaluation Script
 
-The `run_scheduled_evaluation.py` script analyzes traces from a deployed agent and generates reports.
+The `run_scheduled_evaluation.py` script analyzes traces from a deployed agent and generates an HTML report.
 
-**Setup:** Edit the top of the script with your deployed agent details:
+**Setup:** Edit the top of the script with your deployed agent ID:
 ```python
 AGENT_ID = "<REPLACE_WITH_YOUR_AGENT_ID>"
-VERSION = "<REPLACE_WITH_YOUR_AGENT_VERSION>"
 ```
 
 **Run daily analysis:**
 ```bash
 python run_scheduled_evaluation.py
 # Analyzes traces from the last 24 hours
-# Saves report to reports/daily_analysis_<timestamp>.json
+# Saves report to /mnt/artifacts/daily_report_<timestamp>.html
 ```
 
 **Batch processing with tracing:**
@@ -117,7 +116,6 @@ TriageFlow/
 │   ├── app.sh                  # Agent launch script
 │   ├── main.py                 # Streamlit interface
 │   └── utils/                  # Config management utilities
-├── reports/                    # Generated evaluation reports
 └── example-data/
     ├── financial_services.csv
     ├── healthcare.csv

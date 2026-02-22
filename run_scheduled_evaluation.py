@@ -2,21 +2,17 @@
 """
 TriageFlow Scheduled Evaluation Script
 
-Analyzes traces from a deployed agent and generates a report.
+Analyzes traces from a deployed agent and generates an HTML report.
 """
 
 # =============================================================================
-# CONFIGURATION - UPDATE THESE VALUES
+# CONFIGURATION - UPDATE THIS VALUE
 # =============================================================================
-# Replace with your deployed agent's ID and version.
-# Find these in Domino: Deployments > Agents > Your Agent
+# IMPORTANT: Replace with your deployed agent's ID.
+# Find this in Domino: Deployments > Agents > Run Evaluations
 #
 AGENT_ID = "699a65839c06191024866666"
-VERSION = "699a65849c06191024866668"
 #
-# Example:
-#   AGENT_ID = "699a65839c06191024866666"
-#   VERSION = "699a65849c06191024866668"
 # =============================================================================
 
 import argparse
@@ -355,7 +351,7 @@ def generate_report(results: List[Dict[str, Any]], run_id: str, vertical: str,
 def save_report(report: Dict[str, Any], vertical: str, timestamp: str) -> str:
     """Save report to JSON file and return the path."""
     # Create reports directory
-    reports_dir = "/mnt/code/reports"
+    reports_dir = "/mnt/artifacts"
     os.makedirs(reports_dir, exist_ok=True)
 
     # Generate filename
@@ -765,19 +761,19 @@ def analyze_traces(args):
 
 
 def run_daily_analysis():
-    """Analyze all traces from a deployed agent and generate a report."""
+    """Analyze all traces from a deployed agent and generate an HTML report."""
     if not TRACING_AVAILABLE:
         print("ERROR: Domino tracing SDK is required.")
         sys.exit(1)
 
-    if not AGENT_ID or not VERSION:
-        print("ERROR: AGENT_ID and VERSION are not configured.")
-        print("Edit the top of this script to add your deployed agent details.")
+    if not AGENT_ID or AGENT_ID.startswith("<REPLACE"):
+        print("ERROR: AGENT_ID is not configured.")
+        print("Edit the top of this script to add your deployed agent ID.")
         sys.exit(1)
 
     # Fetch traces from the deployed agent
     try:
-        traces = search_agent_traces(agent_id=AGENT_ID, agent_version=VERSION)
+        traces = search_agent_traces(agent_id=AGENT_ID)
     except Exception as e:
         print(f"ERROR: Failed to fetch agent traces: {e}")
         sys.exit(1)
@@ -790,8 +786,8 @@ def run_daily_analysis():
     from datetime import timedelta
     cutoff_time = datetime.now() - timedelta(hours=24)
 
-    # Collect metrics from traces
-    all_metrics = {
+    # Collect metrics from traces and log post-hoc evaluations
+    metrics = {
         "total_traces": 0,
         "quality_scores": [],
         "urgency_levels": [],
@@ -799,6 +795,8 @@ def run_daily_analysis():
         "sla_compliance": [],
         "categories": {}
     }
+
+    eval_timestamp = datetime.now().isoformat()
 
     for trace in traces.data:
         # Check if trace is within last 24 hours
@@ -811,48 +809,146 @@ def run_daily_analysis():
         if trace_time and trace_time < cutoff_time:
             continue
 
-        all_metrics["total_traces"] += 1
+        metrics["total_traces"] += 1
 
-        if hasattr(trace, "evaluations") and trace.evaluations:
-            evals = {e.name: e.value for e in trace.evaluations}
+        if hasattr(trace, "evaluation_results") and trace.evaluation_results:
+            evals = {e.name: e.value for e in trace.evaluation_results}
 
             if "combined_quality_score" in evals:
-                all_metrics["quality_scores"].append(evals["combined_quality_score"])
+                metrics["quality_scores"].append(evals["combined_quality_score"])
             if "urgency" in evals:
-                all_metrics["urgency_levels"].append(int(evals["urgency"]))
+                metrics["urgency_levels"].append(int(evals["urgency"]))
             if "impact_score" in evals:
-                all_metrics["impact_scores"].append(evals["impact_score"])
+                metrics["impact_scores"].append(evals["impact_score"])
             if "sla_met" in evals:
-                all_metrics["sla_compliance"].append(evals["sla_met"])
+                metrics["sla_compliance"].append(evals["sla_met"])
             if "category" in evals:
                 cat = evals["category"]
-                all_metrics["categories"][cat] = all_metrics["categories"].get(cat, 0) + 1
+                metrics["categories"][cat] = metrics["categories"].get(cat, 0) + 1
+
+            # Log post-hoc evaluation to mark this trace as reviewed
+            quality = evals.get("combined_quality_score", 0)
+            urgency = evals.get("urgency", 0)
+            impact = evals.get("impact_score", 0)
+
+            # Determine review status based on metrics
+            if quality >= 4.0:
+                review_status = "approved"
+            elif quality >= 3.0:
+                review_status = "acceptable"
+            else:
+                review_status = "needs_review"
+
+            # Flag high-risk incidents
+            high_risk = 1.0 if (urgency >= 4 and impact >= 7) else 0.0
+
+            # Calculate priority score (0-10) based on urgency, impact, and quality
+            priority_score = (urgency * 0.4) + (impact * 0.4) + ((5 - quality) * 0.4)
+            priority_score = min(10.0, max(0.0, priority_score))
+
+            try:
+                log_evaluation(trace_id=trace.id, name="posthoc_review_status", value=review_status)
+                log_evaluation(trace_id=trace.id, name="posthoc_high_risk_flag", value=high_risk)
+                log_evaluation(trace_id=trace.id, name="posthoc_priority_score", value=round(priority_score, 2))
+                log_evaluation(trace_id=trace.id, name="posthoc_reviewed_at", value=eval_timestamp)
+            except Exception:
+                pass  # Continue if logging fails
 
     # Compute summary statistics
-    report = {
-        "report_type": "daily_analysis",
-        "generated_at": datetime.now().isoformat(),
-        "period": "last_24_hours",
-        "agent_id": AGENT_ID,
-        "agent_version": VERSION,
-        "summary": {
-            "total_traces": all_metrics["total_traces"],
-            "avg_quality_score": sum(all_metrics["quality_scores"]) / len(all_metrics["quality_scores"]) if all_metrics["quality_scores"] else 0,
-            "avg_impact_score": sum(all_metrics["impact_scores"]) / len(all_metrics["impact_scores"]) if all_metrics["impact_scores"] else 0,
-            "sla_compliance_rate": sum(all_metrics["sla_compliance"]) / len(all_metrics["sla_compliance"]) if all_metrics["sla_compliance"] else 0,
-            "urgency_distribution": {level: all_metrics["urgency_levels"].count(level) for level in range(1, 6)},
-            "category_distribution": all_metrics["categories"]
-        }
-    }
+    avg_quality = sum(metrics["quality_scores"]) / len(metrics["quality_scores"]) if metrics["quality_scores"] else 0
+    avg_impact = sum(metrics["impact_scores"]) / len(metrics["impact_scores"]) if metrics["impact_scores"] else 0
+    sla_rate = sum(metrics["sla_compliance"]) / len(metrics["sla_compliance"]) * 100 if metrics["sla_compliance"] else 0
+
+    # Generate HTML report
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Build urgency distribution rows
+    urgency_rows = ""
+    for level in range(1, 6):
+        count = metrics["urgency_levels"].count(level)
+        pct = (count / len(metrics["urgency_levels"]) * 100) if metrics["urgency_levels"] else 0
+        urgency_rows += f"<tr><td>Level {level}</td><td>{count}</td><td>{pct:.1f}%</td></tr>\n"
+
+    # Build category distribution rows
+    category_rows = ""
+    for cat, count in sorted(metrics["categories"].items(), key=lambda x: -x[1]):
+        pct = (count / metrics["total_traces"] * 100) if metrics["total_traces"] else 0
+        category_rows += f"<tr><td>{cat}</td><td>{count}</td><td>{pct:.1f}%</td></tr>\n"
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>TriageFlow Daily Report</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 40px; background: #f5f5f5; }}
+        .container {{ max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        h1 {{ color: #1a1a1a; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }}
+        h2 {{ color: #333; margin-top: 30px; }}
+        .meta {{ color: #666; font-size: 14px; margin-bottom: 30px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 30px 0; }}
+        .metric {{ background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; }}
+        .metric-value {{ font-size: 36px; font-weight: bold; color: #0066cc; }}
+        .metric-label {{ color: #666; margin-top: 5px; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+        th {{ background: #f8f9fa; font-weight: 600; }}
+        .good {{ color: #28a745; }}
+        .warning {{ color: #ffc107; }}
+        .bad {{ color: #dc3545; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TriageFlow Daily Report</h1>
+        <div class="meta">
+            Generated: {timestamp}<br>
+            Agent ID: {AGENT_ID}<br>
+            Period: Last 24 hours
+        </div>
+
+        <h2>Summary Metrics</h2>
+        <div class="metrics">
+            <div class="metric">
+                <div class="metric-value">{metrics["total_traces"]}</div>
+                <div class="metric-label">Total Traces</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{avg_quality:.2f}</div>
+                <div class="metric-label">Avg Quality Score</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{avg_impact:.1f}</div>
+                <div class="metric-label">Avg Impact Score</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{sla_rate:.1f}%</div>
+                <div class="metric-label">SLA Compliance</div>
+            </div>
+        </div>
+
+        <h2>Urgency Distribution</h2>
+        <table>
+            <tr><th>Urgency Level</th><th>Count</th><th>Percentage</th></tr>
+            {urgency_rows}
+        </table>
+
+        <h2>Category Distribution</h2>
+        <table>
+            <tr><th>Category</th><th>Count</th><th>Percentage</th></tr>
+            {category_rows if category_rows else "<tr><td colspan='3'>No category data</td></tr>"}
+        </table>
+    </div>
+</body>
+</html>"""
 
     # Save report
-    reports_dir = "/mnt/code/reports"
+    reports_dir = "/mnt/artifacts"
     os.makedirs(reports_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    report_path = os.path.join(reports_dir, f"daily_analysis_{timestamp}.json")
+    file_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    report_path = os.path.join(reports_dir, f"daily_report_{file_timestamp}.html")
 
     with open(report_path, "w") as f:
-        json.dump(report, f, indent=2)
+        f.write(html)
 
     return report_path
 
