@@ -2,27 +2,22 @@
 """
 TriageFlow Scheduled Evaluation Script
 
-Analyzes traces from the last 24 hours and generates a report.
-Run without arguments for daily analysis, or use subcommands for specific tasks.
-
-Default (no arguments):
-    Analyzes all traces from the last 24 hours and saves a report to reports/
-
-Commands:
-    batch     - Run triage on multiple tickets with full tracing
-    evaluate  - Add evaluations to existing traces from previous runs
-    list-runs - List recent MLflow runs from an experiment
-    analyze   - Analyze traces from a specific run
-
-Usage:
-    python run_scheduled_evaluation.py                    # Daily analysis (last 24h)
-    python run_scheduled_evaluation.py batch --vertical financial_services
-    python run_scheduled_evaluation.py evaluate --run-id <id>
-    python run_scheduled_evaluation.py list-runs
-    python run_scheduled_evaluation.py analyze --run-id <id>
-
-See: https://docs.dominodatalab.com/en/cloud/user_guide/fc1922/set-up-and-run-genai-traces/
+Analyzes traces from a deployed agent and generates a report.
 """
+
+# =============================================================================
+# CONFIGURATION - UPDATE THESE VALUES
+# =============================================================================
+# Replace with your deployed agent's ID and version.
+# Find these in Domino: Deployments > Agents > Your Agent
+#
+AGENT_ID = "<REPLACE_WITH_YOUR_AGENT_ID>"
+VERSION = "<REPLACE_WITH_YOUR_VERSION>"
+#
+# Example:
+#   AGENT_ID = "699a65839c06191024866666"
+#   VERSION = "699a65849c06191024866668"
+# =============================================================================
 
 import argparse
 import json
@@ -43,13 +38,14 @@ sys.path.insert(0, "/mnt/code")
 # Key imports for Domino GenAI tracing:
 # - add_tracing: Decorator to create traced spans with inputs/outputs
 # - init_tracing: Initialize the tracing system
-# - search_traces: Retrieve traces from completed runs for post-hoc evaluation
+# - search_agent_traces: Retrieve traces from a deployed agent
+# - search_traces: Retrieve traces from completed runs
 # - DominoRun: Context manager for creating MLflow runs
 # - log_evaluation: Attach evaluation scores to specific traces
 # - mlflow: Provides autologging for LLM calls
 # =============================================================================
 try:
-    from domino.agents.tracing import add_tracing, init_tracing, search_traces
+    from domino.agents.tracing import add_tracing, init_tracing, search_traces, search_agent_traces
     from domino.agents.logging import DominoRun, log_evaluation
     import mlflow
     TRACING_AVAILABLE = True
@@ -769,105 +765,84 @@ def analyze_traces(args):
 
 
 def run_daily_analysis():
-    """Analyze all traces from the last 24 hours and generate a report."""
-    if not TRACING_AVAILABLE or not mlflow:
+    """Analyze all traces from a deployed agent and generate a report."""
+    if not TRACING_AVAILABLE:
         print("ERROR: Domino tracing SDK is required.")
         sys.exit(1)
 
-    # Get experiment name
-    username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
-    project_name = os.environ.get("DOMINO_PROJECT_NAME", "triageflow")
-    experiment_name = f"tracing-{project_name}-{username}"
-
-    try:
-        experiment = mlflow.get_experiment_by_name(experiment_name)
-        if not experiment:
-            print(f"No experiment found: {experiment_name}")
-            sys.exit(1)
-    except Exception as e:
-        print(f"Error accessing experiment: {e}")
+    if not AGENT_ID or not VERSION:
+        print("ERROR: AGENT_ID and VERSION are not configured.")
+        print("Edit the top of this script to add your deployed agent details.")
         sys.exit(1)
 
-    # Get runs from last 24 hours
-    from datetime import timedelta
-    cutoff_time = datetime.now() - timedelta(hours=24)
-    cutoff_ms = int(cutoff_time.timestamp() * 1000)
+    # Fetch traces from the deployed agent
+    try:
+        traces = search_agent_traces(agent_id=AGENT_ID, agent_version=VERSION)
+    except Exception as e:
+        print(f"ERROR: Failed to fetch agent traces: {e}")
+        sys.exit(1)
 
-    runs = mlflow.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string=f"start_time > {cutoff_ms}",
-        order_by=["start_time DESC"]
-    )
-
-    if runs.empty:
-        print("No runs found in the last 24 hours.")
+    if not traces.data:
+        print("No traces found for this agent.")
         sys.exit(0)
 
-    # Collect metrics from all traces
+    # Filter to last 24 hours
+    from datetime import timedelta
+    cutoff_time = datetime.now() - timedelta(hours=24)
+
+    # Collect metrics from traces
     all_metrics = {
-        "total_runs": len(runs),
         "total_traces": 0,
         "quality_scores": [],
         "urgency_levels": [],
         "impact_scores": [],
         "sla_compliance": [],
-        "categories": {},
-        "runs": []
+        "categories": {}
     }
 
-    for _, run_row in runs.iterrows():
-        run_id = run_row.get("run_id")
-        run_name = run_row.get("tags.mlflow.runName", "unnamed")
+    for trace in traces.data:
+        # Check if trace is within last 24 hours
+        trace_time = None
+        if hasattr(trace, "timestamp_ms"):
+            trace_time = datetime.fromtimestamp(trace.timestamp_ms / 1000)
+        elif hasattr(trace, "start_time"):
+            trace_time = trace.start_time
 
-        try:
-            traces = search_traces(run_id=run_id)
-            run_trace_count = len(traces.data) if traces.data else 0
-            all_metrics["total_traces"] += run_trace_count
+        if trace_time and trace_time < cutoff_time:
+            continue
 
-            run_summary = {
-                "run_id": run_id,
-                "run_name": run_name,
-                "trace_count": run_trace_count,
-                "start_time": str(run_row.get("start_time", "")),
-            }
+        all_metrics["total_traces"] += 1
 
-            for trace in traces.data:
-                if hasattr(trace, "evaluations"):
-                    evals = {e.name: e.value for e in trace.evaluations}
+        if hasattr(trace, "evaluations") and trace.evaluations:
+            evals = {e.name: e.value for e in trace.evaluations}
 
-                    if "combined_quality_score" in evals:
-                        all_metrics["quality_scores"].append(evals["combined_quality_score"])
-                    if "urgency" in evals:
-                        all_metrics["urgency_levels"].append(int(evals["urgency"]))
-                    if "impact_score" in evals:
-                        all_metrics["impact_scores"].append(evals["impact_score"])
-                    if "sla_met" in evals:
-                        all_metrics["sla_compliance"].append(evals["sla_met"])
-                    if "category" in evals:
-                        cat = evals["category"]
-                        all_metrics["categories"][cat] = all_metrics["categories"].get(cat, 0) + 1
-
-            all_metrics["runs"].append(run_summary)
-
-        except Exception:
-            pass
+            if "combined_quality_score" in evals:
+                all_metrics["quality_scores"].append(evals["combined_quality_score"])
+            if "urgency" in evals:
+                all_metrics["urgency_levels"].append(int(evals["urgency"]))
+            if "impact_score" in evals:
+                all_metrics["impact_scores"].append(evals["impact_score"])
+            if "sla_met" in evals:
+                all_metrics["sla_compliance"].append(evals["sla_met"])
+            if "category" in evals:
+                cat = evals["category"]
+                all_metrics["categories"][cat] = all_metrics["categories"].get(cat, 0) + 1
 
     # Compute summary statistics
     report = {
         "report_type": "daily_analysis",
         "generated_at": datetime.now().isoformat(),
         "period": "last_24_hours",
-        "experiment_name": experiment_name,
+        "agent_id": AGENT_ID,
+        "agent_version": VERSION,
         "summary": {
-            "total_runs": all_metrics["total_runs"],
             "total_traces": all_metrics["total_traces"],
             "avg_quality_score": sum(all_metrics["quality_scores"]) / len(all_metrics["quality_scores"]) if all_metrics["quality_scores"] else 0,
             "avg_impact_score": sum(all_metrics["impact_scores"]) / len(all_metrics["impact_scores"]) if all_metrics["impact_scores"] else 0,
             "sla_compliance_rate": sum(all_metrics["sla_compliance"]) / len(all_metrics["sla_compliance"]) if all_metrics["sla_compliance"] else 0,
             "urgency_distribution": {level: all_metrics["urgency_levels"].count(level) for level in range(1, 6)},
             "category_distribution": all_metrics["categories"]
-        },
-        "runs": all_metrics["runs"]
+        }
     }
 
     # Save report
