@@ -22,7 +22,6 @@ Return JSON: {{"score": <1-5>, "rationale": "<brief explanation>"}}"""
 RESPONSE_JUDGE_PROMPT = """Evaluate this incident communication. Score 1-5 (5=excellent).
 
 Incident: {incident}
-Urgency: {urgency}
 
 Communication to {audience}:
 Subject: {subject}
@@ -54,12 +53,12 @@ Evaluate the overall triage quality:
 Return JSON: {{"score": <1-5>, "rationale": "<brief explanation>"}}"""
 
 
-def call_judge(client, provider: str, prompt: str) -> dict:
+def call_judge(client, provider: str, model: str, prompt: str) -> dict:
     """Call LLM to judge output quality."""
     try:
         if provider == "openai":
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model if model else "gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=200
@@ -67,7 +66,7 @@ def call_judge(client, provider: str, prompt: str) -> dict:
             content = response.choices[0].message.content
         else:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=model if model else "claude-sonnet-4-20250514",
                 max_tokens=200,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -81,7 +80,7 @@ def call_judge(client, provider: str, prompt: str) -> dict:
     return {"score": 3, "rationale": "Judge evaluation failed"}
 
 
-def judge_classification(client, provider: str, incident: str, classification: dict) -> dict:
+def judge_classification(client, provider: str, model: str, incident: str, classification: dict) -> dict:
     """Judge the classification quality."""
     prompt = CLASSIFICATION_JUDGE_PROMPT.format(
         incident=incident,
@@ -90,24 +89,44 @@ def judge_classification(client, provider: str, incident: str, classification: d
         urgency=classification.get("urgency", 3),
         reasoning=classification.get("reasoning", "")
     )
-    return call_judge(client, provider, prompt)
+    return call_judge(client, provider, model, prompt)
 
 
-def judge_response(client, provider: str, incident: str, urgency: int, communication: dict) -> dict:
-    """Judge the response communication quality."""
-    prompt = RESPONSE_JUDGE_PROMPT.format(
-        incident=incident,
-        urgency=urgency,
-        audience=communication.get("audience", "unknown"),
-        subject=communication.get("subject", ""),
-        body=communication.get("body", "")[:500]
-    )
-    return call_judge(client, provider, prompt)
+def judge_response(client, provider: str, model: str, incident: str, response_dict: dict) -> list:
+    """Judge the response communications quality. Returns a list of evaluations."""
+    communications = response_dict.get("communications", [])
+    if not communications:
+        return [{"score": 3, "rationale": "No communications to evaluate"}]
+
+    evaluations = []
+    for comm in communications:
+        if isinstance(comm, dict):
+            audience = comm.get("audience", "unknown")
+            subject = comm.get("subject", "")
+            body = comm.get("body", "")[:500]
+        else:
+            audience = getattr(comm, "audience", "unknown")
+            subject = getattr(comm, "subject", "")
+            body = getattr(comm, "body", "")[:500]
+
+        prompt = RESPONSE_JUDGE_PROMPT.format(
+            incident=incident,
+            audience=audience,
+            subject=subject,
+            body=body
+        )
+        evaluations.append(call_judge(client, provider, model, prompt))
+
+    return evaluations
 
 
-def judge_triage(client, provider: str, incident: str, classification: dict,
-                 impact: dict, resources: dict, response: dict) -> dict:
+def judge_triage(client, provider: str, model: str, incident: str, triage_output: dict) -> dict:
     """Judge the overall triage quality."""
+    classification = triage_output.get("classification", {})
+    impact = triage_output.get("impact", {})
+    resources = triage_output.get("assignment", {})
+    response = triage_output.get("response", {})
+
     primary = resources.get("primary_responder", {})
     if hasattr(primary, "model_dump"):
         primary = primary.model_dump()
@@ -123,4 +142,4 @@ def judge_triage(client, provider: str, incident: str, classification: dict,
         sla_met=resources.get("sla_met", False),
         action_count=len(response.get("action_items", []))
     )
-    return call_judge(client, provider, prompt)
+    return call_judge(client, provider, model, prompt)
