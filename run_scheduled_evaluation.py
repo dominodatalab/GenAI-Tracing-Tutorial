@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-TriageFlow Production Evaluation Script
+TriageFlow Scheduled Evaluation Script
 
-A CLI tool for production-grade triage evaluation with Domino GenAI tracing.
+Analyzes traces from the last 24 hours and generates a report.
+Run without arguments for daily analysis, or use subcommands for specific tasks.
 
-This script demonstrates advanced tracing patterns:
-1. Batch processing with @add_tracing and DominoRun context
-2. Post-hoc evaluation using search_traces() and log_evaluation()
-3. Trace analysis and reporting
+Default (no arguments):
+    Analyzes all traces from the last 24 hours and saves a report to reports/
 
 Commands:
     batch     - Run triage on multiple tickets with full tracing
     evaluate  - Add evaluations to existing traces from previous runs
     list-runs - List recent MLflow runs from an experiment
-    analyze   - Analyze traces and generate quality reports
+    analyze   - Analyze traces from a specific run
 
 Usage:
-    python run_scheduled_evaluation.py batch --provider openai --vertical financial_services -n 10
-    python run_scheduled_evaluation.py evaluate --run-id <mlflow_run_id>
-    python run_scheduled_evaluation.py list-runs --experiment <experiment_name>
-    python run_scheduled_evaluation.py analyze --run-id <id> --output report.json
+    python run_scheduled_evaluation.py                    # Daily analysis (last 24h)
+    python run_scheduled_evaluation.py batch --vertical financial_services
+    python run_scheduled_evaluation.py evaluate --run-id <id>
+    python run_scheduled_evaluation.py list-runs
+    python run_scheduled_evaluation.py analyze --run-id <id>
 
 See: https://docs.dominodatalab.com/en/cloud/user_guide/fc1922/set-up-and-run-genai-traces/
 """
@@ -768,24 +768,135 @@ def analyze_traces(args):
         print(f"\nMetrics exported to: {args.output}")
 
 
+def run_daily_analysis():
+    """Analyze all traces from the last 24 hours and generate a report."""
+    if not TRACING_AVAILABLE or not mlflow:
+        print("ERROR: Domino tracing SDK is required.")
+        sys.exit(1)
+
+    # Get experiment name
+    username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
+    project_name = os.environ.get("DOMINO_PROJECT_NAME", "triageflow")
+    experiment_name = f"tracing-{project_name}-{username}"
+
+    try:
+        experiment = mlflow.get_experiment_by_name(experiment_name)
+        if not experiment:
+            print(f"No experiment found: {experiment_name}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"Error accessing experiment: {e}")
+        sys.exit(1)
+
+    # Get runs from last 24 hours
+    from datetime import timedelta
+    cutoff_time = datetime.now() - timedelta(hours=24)
+    cutoff_ms = int(cutoff_time.timestamp() * 1000)
+
+    runs = mlflow.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=f"start_time > {cutoff_ms}",
+        order_by=["start_time DESC"]
+    )
+
+    if runs.empty:
+        print("No runs found in the last 24 hours.")
+        sys.exit(0)
+
+    # Collect metrics from all traces
+    all_metrics = {
+        "total_runs": len(runs),
+        "total_traces": 0,
+        "quality_scores": [],
+        "urgency_levels": [],
+        "impact_scores": [],
+        "sla_compliance": [],
+        "categories": {},
+        "runs": []
+    }
+
+    for _, run_row in runs.iterrows():
+        run_id = run_row.get("run_id")
+        run_name = run_row.get("tags.mlflow.runName", "unnamed")
+
+        try:
+            traces = search_traces(run_id=run_id)
+            run_trace_count = len(traces.data) if traces.data else 0
+            all_metrics["total_traces"] += run_trace_count
+
+            run_summary = {
+                "run_id": run_id,
+                "run_name": run_name,
+                "trace_count": run_trace_count,
+                "start_time": str(run_row.get("start_time", "")),
+            }
+
+            for trace in traces.data:
+                if hasattr(trace, "evaluations"):
+                    evals = {e.name: e.value for e in trace.evaluations}
+
+                    if "combined_quality_score" in evals:
+                        all_metrics["quality_scores"].append(evals["combined_quality_score"])
+                    if "urgency" in evals:
+                        all_metrics["urgency_levels"].append(int(evals["urgency"]))
+                    if "impact_score" in evals:
+                        all_metrics["impact_scores"].append(evals["impact_score"])
+                    if "sla_met" in evals:
+                        all_metrics["sla_compliance"].append(evals["sla_met"])
+                    if "category" in evals:
+                        cat = evals["category"]
+                        all_metrics["categories"][cat] = all_metrics["categories"].get(cat, 0) + 1
+
+            all_metrics["runs"].append(run_summary)
+
+        except Exception:
+            pass
+
+    # Compute summary statistics
+    report = {
+        "report_type": "daily_analysis",
+        "generated_at": datetime.now().isoformat(),
+        "period": "last_24_hours",
+        "experiment_name": experiment_name,
+        "summary": {
+            "total_runs": all_metrics["total_runs"],
+            "total_traces": all_metrics["total_traces"],
+            "avg_quality_score": sum(all_metrics["quality_scores"]) / len(all_metrics["quality_scores"]) if all_metrics["quality_scores"] else 0,
+            "avg_impact_score": sum(all_metrics["impact_scores"]) / len(all_metrics["impact_scores"]) if all_metrics["impact_scores"] else 0,
+            "sla_compliance_rate": sum(all_metrics["sla_compliance"]) / len(all_metrics["sla_compliance"]) if all_metrics["sla_compliance"] else 0,
+            "urgency_distribution": {level: all_metrics["urgency_levels"].count(level) for level in range(1, 6)},
+            "category_distribution": all_metrics["categories"]
+        },
+        "runs": all_metrics["runs"]
+    }
+
+    # Save report
+    reports_dir = "/mnt/code/reports"
+    os.makedirs(reports_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    report_path = os.path.join(reports_dir, f"daily_analysis_{timestamp}.json")
+
+    with open(report_path, "w") as f:
+        json.dump(report, f, indent=2)
+
+    return report_path
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="TriageFlow Production Evaluation Script",
+        description="Analyze traces from the last 24 hours (default) or run specific commands.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Default: analyze last 24 hours
+  python run_scheduled_evaluation.py
+
   # Run batch processing
-  python run_scheduled_evaluation.py batch --provider openai --vertical financial_services -n 5
+  python run_scheduled_evaluation.py batch --vertical financial_services -n 5
 
   # Add evaluations to existing run
   python run_scheduled_evaluation.py evaluate --run-id abc123
-
-  # List recent runs
-  python run_scheduled_evaluation.py list-runs
-
-  # Analyze traces from a run
-  python run_scheduled_evaluation.py analyze --run-id abc123 --output report.json
         """
     )
 
@@ -826,7 +937,9 @@ Examples:
     elif args.command == "analyze":
         analyze_traces(args)
     else:
-        parser.print_help()
+        # Default: analyze traces from last 24 hours
+        report_path = run_daily_analysis()
+        print(f"Report saved: {report_path}")
 
 
 if __name__ == "__main__":

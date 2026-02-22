@@ -20,7 +20,7 @@ Each agent uses dedicated tools to query historical data, check resource availab
 ### Tracing and Observability
 
 - **Unified Trace Tree** - All agents, tools, and LLM calls appear in one hierarchical trace
-- **Automatic Instrumentation** - Uses `@add_tracing` decorator with `mlflow.openai.autolog()` or `mlflow.anthropic.autolog()`
+- **Automatic Instrumentation** - Uses `@add_tracing` decorator with `mlflow.openai.autolog()` or `mlflow.anthropic.autolog()` frameworks
 - **Aggregated Metrics** - `DominoRun` captures statistical summaries (mean, median) across traces
 
 ### LLM Judges
@@ -46,30 +46,7 @@ Sample incidents for Financial Services, Healthcare, Energy, and Public Sector.
    - Go to **Account Settings** > **User Environment Variables**
    - Add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
 
-2. Ensure your environment includes the Domino SDK:
-   ```dockerfile
-   RUN pip install "dominodatalab[data,aisystems]"
-   RUN pip install mlflow==3.2.0
-   ```
-
 ## Usage
-
-### Interactive App
-
-The Streamlit app provides a single-page interface for running triage and evaluating results.
-
-**To publish:**
-1. Go to **Deployments > App** in Domino
-2. Select `app/app.sh` as the launch script
-3. Click **Publish**
-
-**Features:**
-- Select provider (OpenAI/Anthropic) and industry vertical
-- Choose from sample tickets or enter custom incidents
-- View agent responses with reasoning
-- See LLM judge scores and rationales
-- Submit human evaluations (logged to traces)
-- Toggle tracing on/off
 
 ### Notebook
 
@@ -78,14 +55,38 @@ Open `tracing-tutorial.ipynb` for a step-by-step walkthrough:
 2. Execute the triage pipeline
 3. View traces in Domino Experiment Manager
 
+### Deploy as Agent
+
+Deploy TriageFlow as an agentic system with a Streamlit interface for interaction.
+
+**To deploy:**
+1. Go to **Deployments > Agents** in Domino
+2. Configure the agent with `app/app.sh` as the launch script
+3. Click **Deploy**
+
+See [Deploy Agentic Systems](https://docs.dominodatalab.com/en/cloud/user_guide/5aedde/deploy-agentic-systems/) for detailed instructions.
+
+**Features:**
+- Select provider (OpenAI/Anthropic) and industry vertical
+- Choose from sample tickets or enter custom incidents
+- View agent responses with reasoning
+- See LLM judge scores and rationales
+- Submit human evaluations (logged to traces)
+
 ### Scheduled Evaluation Script
 
-The `run_scheduled_evaluation.py` script supports batch processing and post-hoc evaluation. Reports are saved to `reports/`.
+The `run_scheduled_evaluation.py` script analyzes traces and generates reports. Reports are saved to `reports/`.
+
+**Daily analysis (default):**
+```bash
+python run_scheduled_evaluation.py
+# Analyzes all traces from the last 24 hours
+# Saves report to reports/daily_analysis_<timestamp>.json
+```
 
 **Batch processing with tracing:**
 ```bash
-python run_scheduled_evaluation.py batch --provider openai --vertical financial_services -n 10
-# Saves report to reports/triage_report_financial_services_<timestamp>.json
+python run_scheduled_evaluation.py batch --vertical financial_services -n 10
 ```
 
 **Add evaluations to existing traces:**
@@ -93,33 +94,24 @@ python run_scheduled_evaluation.py batch --provider openai --vertical financial_
 python run_scheduled_evaluation.py evaluate --run-id <mlflow_run_id>
 ```
 
-**List recent runs:**
-```bash
-python run_scheduled_evaluation.py list-runs --experiment <name>
-```
-
-**Analyze traces:**
-```bash
-python run_scheduled_evaluation.py analyze --run-id <id> --output report.json
-```
-
 ## Project Structure
 
 ```
 TriageFlow/
 ├── tracing-tutorial.ipynb      # Tutorial notebook
+├── run_triage.py               # Standalone triage script with tracing
+├── run_scheduled_evaluation.py # Scheduled evaluation (analyzes last 24h)
 ├── config.yaml                 # Agent prompts, tools, model configs
 ├── src/
 │   ├── models.py               # Pydantic data models
-│   ├── agents.py               # Four triage agents with @mlflow.trace
+│   ├── agents.py               # Four triage agents
 │   ├── tools.py                # Agent tool functions
 │   └── judges.py               # LLM judge evaluators
-├── run_scheduled_evaluation.py # Scheduled batch evaluation CLI
-├── reports/                    # Generated evaluation reports
 ├── app/
-│   ├── app.sh                  # Domino app launch script
-│   ├── main.py                 # Single-page Streamlit app
+│   ├── app.sh                  # Agent launch script
+│   ├── main.py                 # Streamlit interface
 │   └── utils/                  # Config management utilities
+├── reports/                    # Generated evaluation reports
 └── example-data/
     ├── financial_services.csv
     ├── healthcare.csv
@@ -178,5 +170,6 @@ for trace in traces.data:
 
 ## Documentation
 
+- [Deploy Agentic Systems](https://docs.dominodatalab.com/en/cloud/user_guide/5aedde/deploy-agentic-systems/)
 - [Domino GenAI Tracing Guide](https://docs.dominodatalab.com/en/cloud/user_guide/fc1922/set-up-and-run-genai-traces/)
 - [Automated GenAI Tracing Blueprint](https://domino.ai/resources/blueprints/automated-genai-tracing-for-agent-and-llm-experimentation)
