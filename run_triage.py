@@ -131,15 +131,23 @@ def create_triage_function(client, provider: str, model: str, config: dict):
         primary = resources_dict.get("primary_responder", {})
 
         # Run LLM judges to evaluate output quality
-        class_judge = judge_classification(client, provider, incident.description, class_dict)
+        class_judge = judge_classification(client, provider, model, incident.description, class_dict)
 
-        comms = response_dict.get("communications", [])
-        if comms:
-            resp_judge = judge_response(client, provider, incident.description, class_dict.get("urgency", 3), comms[0])
+        # judge_response returns a list of evaluations
+        resp_judges = judge_response(client, provider, model, incident.description, response_dict)
+        if resp_judges:
+            resp_judge = {"score": sum(r.get("score", 3) for r in resp_judges) / len(resp_judges)}
         else:
-            resp_judge = {"score": 1}
+            resp_judge = {"score": 3}
 
-        triage_judge = judge_triage(client, provider, incident.description, class_dict, impact_dict, resources_dict, response_dict)
+        # judge_triage takes a combined triage_output dict
+        triage_output = {
+            "classification": class_dict,
+            "impact": impact_dict,
+            "assignment": resources_dict,
+            "response": response_dict
+        }
+        triage_judge = judge_triage(client, provider, model, incident.description, triage_output)
 
         return {
             "classification": classification,
