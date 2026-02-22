@@ -78,28 +78,29 @@ Open `tracing-tutorial.ipynb` for a step-by-step walkthrough:
 2. Execute the triage pipeline
 3. View traces in Domino Experiment Manager
 
-### Production Evaluation Script
+### Scheduled Evaluation Script
 
-The `scripts/run_evaluation.py` script supports batch processing and post-hoc evaluation.
+The `run_scheduled_evaluation.py` script supports batch processing and post-hoc evaluation. Reports are saved to `reports/`.
 
 **Batch processing with tracing:**
 ```bash
-python scripts/run_evaluation.py batch --provider openai --vertical financial_services -n 10
+python run_scheduled_evaluation.py batch --provider openai --vertical financial_services -n 10
+# Saves report to reports/triage_report_financial_services_<timestamp>.json
 ```
 
 **Add evaluations to existing traces:**
 ```bash
-python scripts/run_evaluation.py evaluate --run-id <mlflow_run_id>
+python run_scheduled_evaluation.py evaluate --run-id <mlflow_run_id>
 ```
 
 **List recent runs:**
 ```bash
-python scripts/run_evaluation.py list-runs --experiment <name>
+python run_scheduled_evaluation.py list-runs --experiment <name>
 ```
 
 **Analyze traces:**
 ```bash
-python scripts/run_evaluation.py analyze --run-id <id> --output report.json
+python run_scheduled_evaluation.py analyze --run-id <id> --output report.json
 ```
 
 ## Project Structure
@@ -113,13 +114,12 @@ TriageFlow/
 │   ├── agents.py               # Four triage agents with @mlflow.trace
 │   ├── tools.py                # Agent tool functions
 │   └── judges.py               # LLM judge evaluators
+├── run_scheduled_evaluation.py # Scheduled batch evaluation CLI
+├── reports/                    # Generated evaluation reports
 ├── app/
 │   ├── app.sh                  # Domino app launch script
 │   ├── main.py                 # Single-page Streamlit app
-│   ├── run_triage_app.py       # App-launched batch script
 │   └── utils/                  # Config management utilities
-├── scripts/
-│   └── run_evaluation.py       # Production evaluation CLI
 └── example-data/
     ├── financial_services.csv
     ├── healthcare.csv

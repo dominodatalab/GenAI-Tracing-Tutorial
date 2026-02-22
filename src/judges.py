@@ -80,6 +80,7 @@ def call_judge(client, provider: str, model: str, prompt: str) -> dict:
     return {"score": 3, "rationale": "Judge evaluation failed"}
 
 
+@mlflow.trace(name="judge_classification")
 def judge_classification(client, provider: str, model: str, incident: str, classification: dict) -> dict:
     """Judge the classification quality."""
     prompt = CLASSIFICATION_JUDGE_PROMPT.format(
@@ -92,6 +93,7 @@ def judge_classification(client, provider: str, model: str, incident: str, class
     return call_judge(client, provider, model, prompt)
 
 
+@mlflow.trace(name="judge_response")
 def judge_response(client, provider: str, model: str, incident: str, response_dict: dict) -> list:
     """Judge the response communications quality. Returns a list of evaluations."""
     communications = response_dict.get("communications", [])
@@ -120,6 +122,7 @@ def judge_response(client, provider: str, model: str, incident: str, response_di
     return evaluations
 
 
+@mlflow.trace(name="judge_triage")
 def judge_triage(client, provider: str, model: str, incident: str, triage_output: dict) -> dict:
     """Judge the overall triage quality."""
     classification = triage_output.get("classification", {})

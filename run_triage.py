@@ -5,9 +5,14 @@ TriageFlow: Incident Triage Demo
 Multi-agent incident triage with Domino GenAI tracing.
 Runs a 4-agent pipeline to classify, assess, assign, and respond to incidents.
 
+This script demonstrates the three key steps of Domino tracing:
+1. Enable MLflow autologging to capture LLM calls
+2. Use @add_tracing decorator to create traced functions with evaluators
+3. Run within DominoRun context to aggregate metrics across traces
+
 Usage:
     python run_triage.py
-    python run_triage.py --provider anthropic --vertical healthcare
+    python run_triage.py --provider anthropic --vertical healthcare -n 5
 """
 
 import argparse
@@ -16,10 +21,19 @@ import os
 import sys
 from datetime import datetime
 
-import mlflow
 import pandas as pd
 import yaml
 
+# =============================================================================
+# TRACING SETUP: Import Domino tracing components
+# =============================================================================
+# - mlflow: Provides autologging for LLM calls (openai, anthropic, etc.)
+# - add_tracing: Decorator that creates traced spans with inputs/outputs
+# - search_traces: Retrieves traces from a completed run for post-hoc evaluation
+# - DominoRun: Context manager that creates an MLflow run and aggregates metrics
+# - log_evaluation: Attaches evaluation scores to specific traces
+# =============================================================================
+import mlflow
 from domino.agents.tracing import add_tracing, search_traces
 from domino.agents.logging import DominoRun, log_evaluation
 
@@ -28,52 +42,40 @@ from src.agents import classify_incident, assess_impact, match_resources, draft_
 from src.judges import judge_classification, judge_response, judge_triage
 
 
-# Valid options
 PROVIDERS = ["openai", "anthropic"]
 VERTICALS = ["financial_services", "healthcare", "energy", "public_sector"]
 
 
 def parse_args():
-    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Run the TriageFlow incident triage pipeline with Domino tracing."
     )
-    parser.add_argument(
-        "--provider",
-        type=str,
-        choices=PROVIDERS,
-        default="openai",
-        help="LLM provider to use (default: openai)"
-    )
-    parser.add_argument(
-        "--vertical",
-        type=str,
-        choices=VERTICALS,
-        default="financial_services",
-        help="Industry vertical for sample incidents (default: financial_services)"
-    )
-    parser.add_argument(
-        "-n", "--num-tickets",
-        type=int,
-        default=0,
-        help="Number of tickets to process (default: all in CSV)"
-    )
+    parser.add_argument("--provider", choices=PROVIDERS, default="openai")
+    parser.add_argument("--vertical", choices=VERTICALS, default="financial_services")
+    parser.add_argument("-n", "--num-tickets", type=int, default=0,
+                        help="Number of tickets to process (0 = all)")
     return parser.parse_args()
 
 
+# =============================================================================
+# STEP 1: Enable MLflow Autologging
+# =============================================================================
+# Autologging automatically captures all LLM API calls including:
+# - Request parameters (model, temperature, messages)
+# - Response content and token usage
+# - Latency for each call
+# This creates detailed spans under your traced function.
+# =============================================================================
 def initialize_client(provider: str):
-    """Initialize LLM client and enable auto-tracing."""
+    """Initialize LLM client and enable MLflow autologging."""
     if provider == "openai":
         from openai import OpenAI
-        client = OpenAI()
-        mlflow.openai.autolog()
+        mlflow.openai.autolog()  # <-- Captures all OpenAI API calls
+        return OpenAI()
     else:
         from anthropic import Anthropic
-        client = Anthropic()
-        mlflow.anthropic.autolog()
-
-    print(f"Auto-tracing enabled for {provider}")
-    return client
+        mlflow.anthropic.autolog()  # <-- Captures all Anthropic API calls
+        return Anthropic()
 
 
 def row_to_incident(row) -> Incident:
@@ -88,29 +90,69 @@ def row_to_incident(row) -> Incident:
     )
 
 
+# =============================================================================
+# STEP 2A: Define an Evaluator Function
+# =============================================================================
+# The evaluator extracts metrics from the traced function's output.
+# It receives a span object with .outputs containing the function's return value.
+# Return a dict of metric_name -> numeric_value pairs.
+# These metrics are automatically attached to each trace.
+# =============================================================================
 def pipeline_evaluator(span) -> dict:
-    """Extract pre-computed metrics from pipeline outputs."""
+    """
+    Extract metrics from pipeline outputs for automatic evaluation.
+
+    Args:
+        span: MLflow span object with .outputs containing function return value
+
+    Returns:
+        Dict of metric names to numeric values
+    """
     outputs = span.outputs or {}
     if not hasattr(outputs, "get"):
         return {}
 
     return {
+        # Agent output metrics
         "classification_confidence": outputs.get("classification_confidence", 0.5),
         "impact_score": outputs.get("impact_score", 5.0),
         "resource_match_score": outputs.get("resource_match_score", 0.5),
         "completeness_score": outputs.get("completeness_score", 0.5),
+        # LLM judge scores
         "classification_judge_score": outputs.get("classification_judge_score", 3),
         "response_judge_score": outputs.get("response_judge_score", 3),
         "triage_judge_score": outputs.get("triage_judge_score", 3),
     }
 
 
+# =============================================================================
+# STEP 2B: Create a Traced Function with @add_tracing
+# =============================================================================
+# The @add_tracing decorator:
+# - Creates a parent span that captures function inputs and outputs
+# - Nests all LLM calls (from autolog) under this parent span
+# - Runs the evaluator on completion to extract metrics
+#
+# Parameters:
+# - name: Name shown in the trace explorer
+# - autolog_frameworks: List of frameworks to capture (e.g., ["openai"])
+# - evaluator: Function that extracts metrics from the output
+# =============================================================================
 def create_triage_function(client, provider: str, model: str, config: dict):
-    """Create the traced triage pipeline function."""
+    """Create a traced triage pipeline function."""
 
-    @add_tracing(name="triage_incident", autolog_frameworks=[provider], evaluator=pipeline_evaluator)
+    @add_tracing(
+        name="triage_incident",           # Span name in trace explorer
+        autolog_frameworks=[provider],     # Capture LLM calls for this provider
+        evaluator=pipeline_evaluator       # Extract metrics from output
+    )
     def triage_incident(incident: Incident):
-        """Run the 4-agent triage pipeline with LLM judges."""
+        """
+        Run the 4-agent triage pipeline.
+
+        All LLM calls within this function are automatically captured
+        as child spans under the 'triage_incident' parent span.
+        """
         # Agent 1: Classify the incident
         classification = classify_incident(client, provider, model, incident, config)
 
@@ -130,17 +172,12 @@ def create_triage_function(client, provider: str, model: str, config: dict):
         response_dict = response.model_dump()
         primary = resources_dict.get("primary_responder", {})
 
-        # Run LLM judges to evaluate output quality
+        # Run LLM judges (also captured by autolog)
         class_judge = judge_classification(client, provider, model, incident.description, class_dict)
 
-        # judge_response returns a list of evaluations
         resp_judges = judge_response(client, provider, model, incident.description, response_dict)
-        if resp_judges:
-            resp_judge = {"score": sum(r.get("score", 3) for r in resp_judges) / len(resp_judges)}
-        else:
-            resp_judge = {"score": 3}
+        resp_score = sum(r.get("score", 3) for r in resp_judges) / len(resp_judges) if resp_judges else 3
 
-        # judge_triage takes a combined triage_output dict
         triage_output = {
             "classification": class_dict,
             "impact": impact_dict,
@@ -149,18 +186,19 @@ def create_triage_function(client, provider: str, model: str, config: dict):
         }
         triage_judge = judge_triage(client, provider, model, incident.description, triage_output)
 
+        # Return results with metrics for the evaluator
         return {
             "classification": classification,
             "impact": impact,
             "resources": resources,
             "response": response,
-            # Metrics for evaluator
+            # These values are extracted by pipeline_evaluator
             "classification_confidence": class_dict.get("confidence", 0.5),
             "impact_score": impact_dict.get("impact_score", 5.0),
             "resource_match_score": primary.get("match_score", 0.5) if isinstance(primary, dict) else 0.5,
             "completeness_score": response_dict.get("completeness_score", 0.5),
             "classification_judge_score": class_judge.get("score", 3),
-            "response_judge_score": resp_judge.get("score", 3),
+            "response_judge_score": resp_score,
             "triage_judge_score": triage_judge.get("score", 3),
         }
 
@@ -203,34 +241,58 @@ def print_sample_communication(results: list):
         print(f"{comm.body[:300]}...\n")
 
 
-def add_adhoc_evaluations(run_id: str, results: list):
-    """Add ad hoc evaluations to traces after pipeline completes."""
+# =============================================================================
+# STEP 4: Post-hoc Evaluation with search_traces and log_evaluation
+# =============================================================================
+# After the run completes, you can add additional evaluations:
+# - search_traces(run_id=...) retrieves all traces from a run
+# - log_evaluation(trace_id=..., name=..., value=...) attaches a metric
+#
+# This is useful for:
+# - Adding human feedback scores
+# - Computing derived metrics
+# - Flagging traces for review
+# =============================================================================
+def add_posthoc_evaluations(run_id: str, results: list):
+    """Add post-hoc evaluations to traces after pipeline completes."""
     print("\n" + "-" * 40)
-    print("Adding ad hoc evaluations...")
+    print("Adding post-hoc evaluations...")
 
+    # Retrieve all traces from this run
     traces = search_traces(run_id=run_id)
 
     for i, trace in enumerate(traces.data):
         result = results[i]
 
-        # Compute combined quality score from judge evaluations
+        # Compute combined quality score
         combined_quality = (
             result["classification_judge_score"] +
             result["response_judge_score"] +
             result["triage_judge_score"]
         ) / 3
 
-        # Flag high-urgency incidents that may need manual review
-        needs_review = result["classification"].urgency >= 4 and result["impact"].impact_score >= 7
+        # Flag high-urgency incidents for manual review
+        needs_review = (
+            result["classification"].urgency >= 4 and
+            result["impact"].impact_score >= 7
+        )
 
-        log_evaluation(trace_id=trace.id, name="combined_quality_score", value=round(combined_quality, 2))
-        log_evaluation(trace_id=trace.id, name="needs_manual_review", value=1.0 if needs_review else 0.0)
+        # Attach evaluations to the trace
+        log_evaluation(
+            trace_id=trace.id,
+            name="combined_quality_score",
+            value=round(combined_quality, 2)
+        )
+        log_evaluation(
+            trace_id=trace.id,
+            name="needs_manual_review",
+            value=1.0 if needs_review else 0.0
+        )
 
     print(f"Added evaluations to {len(traces.data)} traces")
 
 
 def main():
-    """Main entry point."""
     args = parse_args()
 
     print("=" * 80)
@@ -250,8 +312,9 @@ def main():
     model = config["models"][args.provider]
     print(f"Model: {model}")
 
-    # Initialize client with auto-tracing
+    # STEP 1: Initialize client with autologging
     client = initialize_client(args.provider)
+    print(f"MLflow autologging enabled for {args.provider}")
 
     # Load sample incidents
     data_path = os.path.join(script_dir, f"example-data/{args.vertical}.csv")
@@ -261,7 +324,7 @@ def main():
         incidents = incidents[:args.num_tickets]
     print(f"Processing {len(incidents)} incidents from {args.vertical}")
 
-    # Set up experiment and run naming
+    # Set up experiment naming
     username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
     project_name = os.environ.get("DOMINO_PROJECT_NAME", "default")
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -272,7 +335,18 @@ def main():
     print(f"Run: {run_name}")
     print()
 
-    # Aggregated metrics for DominoRun
+    # =========================================================================
+    # STEP 3: Run within DominoRun Context
+    # =========================================================================
+    # DominoRun creates an MLflow run that:
+    # - Stores all traces from @add_tracing functions
+    # - Aggregates metrics across traces (mean, median, etc.)
+    # - Links configuration for reproducibility
+    #
+    # Parameters:
+    # - agent_config_path: Path to config file (stored with the run)
+    # - custom_summary_metrics: List of (metric_name, aggregation) tuples
+    # =========================================================================
     aggregated_metrics = [
         ("classification_confidence", "mean"),
         ("impact_score", "median"),
@@ -283,30 +357,33 @@ def main():
         ("triage_judge_score", "mean"),
     ]
 
-    # Create the traced triage function
+    # STEP 2: Create the traced function
     triage_incident = create_triage_function(client, args.provider, model, config)
 
     # Set MLflow experiment
     mlflow.set_experiment(experiment_name)
 
-    # Run the pipeline
+    # Run pipeline within DominoRun context
     results = []
     run_id = None
 
-    with DominoRun(agent_config_path=config_path, custom_summary_metrics=aggregated_metrics) as run:
+    with DominoRun(
+        agent_config_path=config_path,
+        custom_summary_metrics=aggregated_metrics
+    ) as run:
         mlflow.set_tag("mlflow.runName", run_name)
         run_id = run.info.run_id
 
         for incident in incidents:
             print(f"Processing {incident.ticket_id}...")
 
+            # Each call creates a trace under this run
             result = triage_incident(incident)
 
-            results.append({
-                "ticket_id": incident.ticket_id,
-                **result
-            })
-            print(f"  -> {result['classification'].category.value} | Urgency: {result['classification'].urgency} | Impact: {result['impact'].impact_score}")
+            results.append({"ticket_id": incident.ticket_id, **result})
+            print(f"  -> {result['classification'].category.value} | "
+                  f"Urgency: {result['classification'].urgency} | "
+                  f"Impact: {result['impact'].impact_score}")
 
         # Suppress DominoRun exit messages
         _stdout = sys.stdout
@@ -319,8 +396,8 @@ def main():
     print_results_summary(results)
     print_sample_communication(results)
 
-    # Add ad hoc evaluations
-    add_adhoc_evaluations(run_id, results)
+    # STEP 4: Add post-hoc evaluations
+    add_posthoc_evaluations(run_id, results)
 
     print("\n" + "=" * 80)
     print("Done! View traces in Domino Experiment Manager.")

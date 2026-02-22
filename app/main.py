@@ -3,7 +3,15 @@ TriageFlow - Multi-Agent Incident Triage System
 
 A single-page Streamlit application for running incident triage,
 viewing agent responses and reasoning, and adding user evaluations.
-Includes Domino GenAI tracing support for experiment tracking.
+
+This app demonstrates Domino GenAI tracing integration:
+1. Import tracing components and initialize
+2. Create evaluator functions to extract metrics from outputs
+3. Use @add_tracing decorator to create traced functions
+4. Run within DominoRun context to capture traces
+5. Log human feedback to traces with log_evaluation()
+
+See: https://docs.dominodatalab.com/en/cloud/user_guide/fc1922/set-up-and-run-genai-traces/
 """
 
 import streamlit as st
@@ -11,29 +19,33 @@ import pandas as pd
 import numpy as np
 import sys
 import os
-import time
 
 # Add paths for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, "/mnt/code")
 
-# Import tracing modules with fallback for environments without Domino SDK
+# =============================================================================
+# TRACING STEP 1: Import and Initialize Tracing Components
+# =============================================================================
+# Import the key tracing components from the Domino SDK:
+# - add_tracing: Decorator that creates traced spans with inputs/outputs
+# - init_tracing: Initializes the tracing system
+# - DominoRun: Context manager that creates an MLflow run for storing traces
+# - log_evaluation: Attaches evaluation scores to specific traces
+# - mlflow: Provides autologging for LLM calls
+# =============================================================================
 try:
     from domino.agents.tracing import add_tracing, init_tracing
     from domino.agents.logging import DominoRun, log_evaluation
     import mlflow
-    TRACING_AVAILABLE = True
-    # Initialize tracing when available
-    init_tracing()
-except ImportError:
-    TRACING_AVAILABLE = False
-    DominoRun = None
-    mlflow = None
-    log_evaluation = None
-    def add_tracing(**kwargs):
-        def decorator(func):
-            return func
-        return decorator
+    init_tracing()  # Initialize tracing system
+except ImportError as e:
+    st.error(
+        "Domino SDK is required but not installed. "
+        "Please install it with: `pip install dominodatalab[data,aisystems]`"
+    )
+    st.info(f"Import error: {e}")
+    st.stop()
 
 from utils.config_manager import load_base_config, load_sample_tickets, VERTICALS
 from src.models import Incident, IncidentSource
@@ -95,8 +107,6 @@ def init_session_state():
         st.session_state.demo_result = None
     if "user_evaluation" not in st.session_state:
         st.session_state.user_evaluation = {}
-    if "use_tracing" not in st.session_state:
-        st.session_state.use_tracing = TRACING_AVAILABLE
 
 
 def initialize_client(provider: str, enable_autolog: bool = False):
@@ -113,11 +123,26 @@ def initialize_client(provider: str, enable_autolog: bool = False):
         return Anthropic()
 
 
+# =============================================================================
+# TRACING STEP 2: Define an Evaluator Function
+# =============================================================================
+# The evaluator extracts metrics from the traced function's output.
+# It receives a span object with .outputs containing the function's return value.
+# Return a dict of metric_name -> value pairs (numeric or string).
+#
+# These metrics are automatically:
+# - Attached to each trace for filtering in the Trace Explorer
+# - Aggregated across traces when using DominoRun with custom_summary_metrics
+# =============================================================================
 def pipeline_evaluator(span) -> dict:
-    """Extract metrics from the triage pipeline span.
+    """
+    Extract metrics from triage pipeline outputs for automatic evaluation.
 
-    The evaluator receives a span object from the tracing framework.
-    Returns dict with numeric metrics and string labels for filtering.
+    Args:
+        span: MLflow span object with .outputs containing function return value
+
+    Returns:
+        Dict of metric names to values (numeric for aggregation, strings for labels)
     """
     try:
         output = span.outputs or {}
@@ -187,17 +212,35 @@ def pipeline_evaluator(span) -> dict:
         }
 
 
+# =============================================================================
+# TRACING STEP 3: Create a Traced Function with @add_tracing
+# =============================================================================
+# The @add_tracing decorator:
+# - Creates a parent span that captures function inputs and outputs
+# - Nests all LLM calls (from autolog) under this parent span
+# - Runs the evaluator on completion to extract metrics
+#
+# Parameters:
+# - name: Name shown in the trace explorer (e.g., "triage_incident")
+# - autolog_frameworks: List of LLM frameworks to capture (e.g., ["openai"])
+# - evaluator: Function that extracts metrics from the output
+# =============================================================================
 def create_traced_triage_function(client, provider: str, model: str, config: dict):
-    """Create a traced triage function for the given provider.
-
-    Returns a function decorated with @add_tracing that runs the full
-    4-agent pipeline with judges, capturing all metrics for Domino tracing.
-    """
+    """Create a traced triage function for the given provider."""
     tracing_framework = "openai" if provider == "openai" else provider
 
-    @add_tracing(name="triage_incident", autolog_frameworks=[tracing_framework], evaluator=pipeline_evaluator)
+    @add_tracing(
+        name="triage_incident",           # Span name in trace explorer
+        autolog_frameworks=[tracing_framework],  # Capture LLM calls
+        evaluator=pipeline_evaluator      # Extract metrics from output
+    )
     def triage_incident(incident: Incident) -> dict:
-        """Run the full triage pipeline for an incident, including judge evaluations."""
+        """
+        Run the full triage pipeline for an incident.
+
+        All LLM calls within this function are automatically captured
+        as child spans under the 'triage_incident' parent span.
+        """
         # Run the 4 agent pipeline
         classification = classify_incident(client, provider, model, incident, config)
         impact = assess_impact(client, provider, model, incident, classification, config)
@@ -287,106 +330,43 @@ def create_traced_triage_function(client, provider: str, model: str, config: dic
     return triage_incident
 
 
+# =============================================================================
+# TRACING STEP 4: Run Within DominoRun Context
+# =============================================================================
+# DominoRun creates an MLflow run that:
+# - Stores all traces from @add_tracing functions
+# - Aggregates metrics across traces (mean, median, etc.)
+# - Links configuration for reproducibility
+#
+# The run_id is captured for post-hoc operations like adding human feedback.
+# =============================================================================
 def run_triage_with_tracing(provider: str, model: str, incident: Incident, config: dict, config_path: str = None):
-    """Run triage pipeline with full Domino tracing and metrics.
-
-    Uses DominoRun context + @add_tracing with evaluator to capture traces and metrics.
-    See: https://docs.dominodatalab.com/en/cloud/user_guide/fc1922/set-up-and-run-genai-traces/
-
-    Returns:
-        Dict containing triage results plus trace_id and run_id for feedback logging.
-    """
+    """Run triage pipeline with full Domino tracing and metrics."""
     if config_path is None:
         config_path = "/mnt/code/config.yaml"
 
-    # Enable autolog BEFORE creating client to capture all LLM calls
+    # Enable MLflow autologging BEFORE making LLM calls
+    # This captures all API calls including request/response details
     if mlflow:
         if provider == "openai":
-            mlflow.openai.autolog()
+            mlflow.openai.autolog()  # Captures all OpenAI API calls
         else:
-            mlflow.anthropic.autolog()
+            mlflow.anthropic.autolog()  # Captures all Anthropic API calls
 
     client = initialize_client(provider, enable_autolog=False)
     triage_incident = create_traced_triage_function(client, provider, model, config)
 
-    # Run within DominoRun context to create MLflow run that stores traces
-    if TRACING_AVAILABLE and DominoRun is not None:
-        with DominoRun(agent_config_path=config_path) as run:
-            result = triage_incident(incident)
+    # Run within DominoRun context to create MLflow run
+    with DominoRun(agent_config_path=config_path) as run:
+        result = triage_incident(incident)
 
-            # Get run_id from DominoRun context
-            run_id = run.info.run_id if hasattr(run, 'info') else None
+        # Get run_id from DominoRun context
+        run_id = run.info.run_id if hasattr(run, 'info') else None
 
-            # trace_id is already captured inside create_traced_triage_function
-            # Just add run_id for completeness
-            result["_run_id"] = run_id
-            return result
-    else:
-        return triage_incident(incident)
-
-
-def run_triage_pipeline(client, provider: str, model: str, incident: Incident, config: dict):
-    """Run the 4-agent triage pipeline with judges (non-traced version with progress updates)."""
-    results = {"stages": {}, "judges": {}}
-
-    yield "stage", "classifier", "Running Classifier Agent..."
-    start = time.time()
-    classification = classify_incident(client, provider, model, incident, config)
-    results["stages"]["classification"] = {"result": classification, "time": time.time() - start}
-    yield "result", "classifier", classification
-
-    yield "stage", "impact_assessor", "Running Impact Assessor Agent..."
-    start = time.time()
-    impact = assess_impact(client, provider, model, incident, classification, config)
-    results["stages"]["impact"] = {"result": impact, "time": time.time() - start}
-    yield "result", "impact_assessor", impact
-
-    yield "stage", "resource_matcher", "Running Resource Matcher Agent..."
-    start = time.time()
-    resources = match_resources(client, provider, model, classification, impact, config)
-    results["stages"]["resources"] = {"result": resources, "time": time.time() - start}
-    yield "result", "resource_matcher", resources
-
-    yield "stage", "response_drafter", "Running Response Drafter Agent..."
-    start = time.time()
-    response = draft_response(client, provider, model, incident, classification, impact, resources, config)
-    results["stages"]["response"] = {"result": response, "time": time.time() - start}
-    yield "result", "response_drafter", response
-
-    yield "stage", "judges", "Running Quality Judges..."
-
-    class_dict = classification.model_dump()
-    response_dict = response.model_dump()
-
-    class_judge = judge_classification(client, provider, model, incident.description, class_dict)
-    results["judges"]["classification"] = class_judge
-
-    resp_judges = judge_response(client, provider, model, incident.description, response_dict)
-    if resp_judges:
-        avg_score = sum(r.get("score", 3) for r in resp_judges) / len(resp_judges)
-        combined_rationale = "; ".join(r.get("rationale", "") for r in resp_judges)
-        resp_judge = {"score": avg_score, "rationale": combined_rationale}
-    else:
-        resp_judge = {"score": 3, "rationale": "No communications to evaluate"}
-    results["judges"]["response"] = resp_judge
-
-    triage_output = {
-        "classification": class_dict,
-        "impact": impact.model_dump(),
-        "assignment": resources.model_dump(),
-        "response": response_dict
-    }
-    triage_judge = judge_triage(client, provider, model, incident.description, triage_output)
-    results["judges"]["triage"] = triage_judge
-
-    combined_quality = (
-        class_judge.get("score", 3) +
-        resp_judge.get("score", 3) +
-        triage_judge.get("score", 3)
-    ) / 3
-    results["combined_quality"] = combined_quality
-
-    yield "complete", "all", results
+        # trace_id is already captured inside create_traced_triage_function
+        # Just add run_id for completeness
+        result["_run_id"] = run_id
+        return result
 
 
 def render_ticket_selector():
@@ -692,14 +672,28 @@ def get_feedback_storage_path() -> str:
     return base_path
 
 
+# =============================================================================
+# TRACING STEP 5: Log Human Feedback to Traces
+# =============================================================================
+# After a trace is created, you can attach additional evaluations using
+# log_evaluation(trace_id=..., name=..., value=...).
+#
+# This is useful for:
+# - Adding human feedback scores to production traces
+# - Comparing human vs automated evaluations
+# - Flagging traces that need review
+#
+# Human evaluations appear alongside automated metrics in the Trace Explorer.
+# =============================================================================
 def save_user_feedback(ticket_id: str, evaluation: dict, trace_id: str = None, run_id: str = None):
-    """Save user feedback to local storage and optionally to production tracing.
+    """
+    Save user feedback to local storage and log to production tracing.
 
     Args:
         ticket_id: The ticket ID being evaluated
         evaluation: Dictionary containing user evaluation scores and comments
-        trace_id: Optional trace ID for logging to Domino tracing
-        run_id: Optional run ID for logging to Domino tracing
+        trace_id: Trace ID for logging to Domino tracing (from @add_tracing span)
+        run_id: Run ID for reference (from DominoRun context)
     """
     import json
     from datetime import datetime
@@ -722,7 +716,7 @@ def save_user_feedback(ticket_id: str, evaluation: dict, trace_id: str = None, r
         f.write(json.dumps(feedback_record) + "\n")
 
     # Log to production tracing if trace_id is available
-    if trace_id and TRACING_AVAILABLE and log_evaluation:
+    if trace_id:
         try:
             # Log numeric scores
             log_evaluation(trace_id=trace_id, name="human_classification_score", value=float(evaluation["classification_score"]))
@@ -894,7 +888,7 @@ def main():
         "Anthropic (Claude Sonnet)": "anthropic"
     }
 
-    col1, col2, col3 = st.columns([2, 2, 1])
+    col1, col2 = st.columns(2)
 
     with col1:
         selected_model = st.selectbox(
@@ -911,14 +905,6 @@ def main():
             "anthropic": "claude-sonnet-4-20250514"
         }
         st.text_input("Model", value=model_info[provider], disabled=True)
-
-    with col3:
-        st.session_state.use_tracing = st.checkbox(
-            "Tracing",
-            value=st.session_state.use_tracing if TRACING_AVAILABLE else False,
-            disabled=not TRACING_AVAILABLE,
-            help="Enable Domino GenAI tracing to capture metrics and traces" + ("" if TRACING_AVAILABLE else " (unavailable)")
-        )
 
     model_config = config.get("models", {}).get(provider, {})
     if isinstance(model_config, dict):
@@ -971,102 +957,53 @@ def main():
             initial_severity=clean_nan(active_ticket.get("initial_severity"))
         )
 
-        # Run with tracing if enabled
-        if st.session_state.use_tracing and TRACING_AVAILABLE:
-            with st.spinner("Running triage pipeline with tracing..."):
-                try:
-                    result = run_triage_with_tracing(provider, model, incident, config)
-
-                    # Extract trace metadata for feedback logging
-                    trace_id = result.pop("_trace_id", None)
-                    run_id = result.pop("_run_id", None)
-
-                    # Convert traced result to expected format
-                    final_results = {
-                        "stages": {
-                            "classification": {"result": result["classification"], "time": 0},
-                            "impact": {"result": result["impact"], "time": 0},
-                            "resources": {"result": result["assignment"], "time": 0},
-                            "response": {"result": result["response"], "time": 0},
-                        },
-                        "judges": {
-                            "classification": {
-                                "score": result["judge_scores"]["classification_score"],
-                                "rationale": result["judge_scores"]["classification_rationale"]
-                            },
-                            "response": {
-                                "score": result["judge_scores"]["response_score"],
-                                "rationale": ""
-                            },
-                            "triage": {
-                                "score": result["judge_scores"]["triage_score"],
-                                "rationale": result["judge_scores"]["triage_rationale"]
-                            },
-                        },
-                        "combined_quality": result["judge_scores"]["combined_score"],
-                    }
-
-                    st.session_state.demo_result = {
-                        "incident": incident,
-                        "results": final_results,
-                        "tracing_enabled": True,
-                        "trace_id": trace_id,
-                        "run_id": run_id
-                    }
-                    st.success("Triage completed with tracing enabled. View traces in Domino Experiment Manager.")
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"Triage pipeline failed: {str(e)}")
-                    st.exception(e)
-        else:
-            # Standard mode without tracing - with progress updates
+        # Run triage pipeline with tracing
+        with st.spinner("Running triage pipeline..."):
             try:
-                client = initialize_client(provider)
-            except Exception as e:
-                st.error(f"Failed to initialize {provider} client. Please check your API key configuration.")
-                st.exception(e)
-                st.stop()
+                result = run_triage_with_tracing(provider, model, incident, config)
 
-            progress_container = st.container()
-            with progress_container:
-                st.markdown("### Pipeline Progress")
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+                # Extract trace metadata for feedback logging
+                trace_id = result.pop("_trace_id", None)
+                run_id = result.pop("_run_id", None)
 
-                stages = ["classifier", "impact_assessor", "resource_matcher", "response_drafter", "judges"]
-                stage_names = {
-                    "classifier": "Classifier Agent",
-                    "impact_assessor": "Impact Assessor Agent",
-                    "resource_matcher": "Resource Matcher Agent",
-                    "response_drafter": "Response Drafter Agent",
-                    "judges": "Quality Judges"
+                # Convert traced result to expected format
+                final_results = {
+                    "stages": {
+                        "classification": {"result": result["classification"], "time": 0},
+                        "impact": {"result": result["impact"], "time": 0},
+                        "resources": {"result": result["assignment"], "time": 0},
+                        "response": {"result": result["response"], "time": 0},
+                    },
+                    "judges": {
+                        "classification": {
+                            "score": result["judge_scores"]["classification_score"],
+                            "rationale": result["judge_scores"]["classification_rationale"]
+                        },
+                        "response": {
+                            "score": result["judge_scores"]["response_score"],
+                            "rationale": ""
+                        },
+                        "triage": {
+                            "score": result["judge_scores"]["triage_score"],
+                            "rationale": result["judge_scores"]["triage_rationale"]
+                        },
+                    },
+                    "combined_quality": result["judge_scores"]["combined_score"],
                 }
 
-                try:
-                    final_results = None
-                    for event_type, stage, data in run_triage_pipeline(client, provider, model, incident, config):
-                        if event_type == "stage":
-                            status_text.markdown(f"**{stage_names.get(stage, stage)}:** {data}")
-                            stage_idx = stages.index(stage) if stage in stages else 0
-                            progress_bar.progress((stage_idx) / len(stages))
-                        elif event_type == "complete":
-                            final_results = data
-                            progress_bar.progress(1.0)
-                            status_text.markdown("**Complete**")
+                st.session_state.demo_result = {
+                    "incident": incident,
+                    "results": final_results,
+                    "tracing_enabled": True,
+                    "trace_id": trace_id,
+                    "run_id": run_id
+                }
+                st.success("Triage completed. View traces in Domino Experiment Manager.")
+                st.rerun()
 
-                    if final_results:
-                        st.session_state.demo_result = {
-                            "incident": incident,
-                            "results": final_results,
-                            "tracing_enabled": False
-                        }
-                        st.success("Triage completed successfully.")
-                        st.rerun()
-
-                except Exception as e:
-                    st.error(f"Triage pipeline failed: {str(e)}")
-                    st.exception(e)
+            except Exception as e:
+                st.error(f"Triage pipeline failed: {str(e)}")
+                st.exception(e)
 
     # Display Results
     if st.session_state.demo_result:
