@@ -2,19 +2,24 @@
 """
 TriageFlow Production Evaluation Script
 
-This script supports two modes:
-1. Batch Processing: Run triage on multiple tickets with full tracing
-2. Post-hoc Evaluation: Add evaluations to existing traces from previous runs
+A CLI tool for production-grade triage evaluation with Domino GenAI tracing.
+
+This script demonstrates advanced tracing patterns:
+1. Batch processing with @add_tracing and DominoRun context
+2. Post-hoc evaluation using search_traces() and log_evaluation()
+3. Trace analysis and reporting
+
+Commands:
+    batch     - Run triage on multiple tickets with full tracing
+    evaluate  - Add evaluations to existing traces from previous runs
+    list-runs - List recent MLflow runs from an experiment
+    analyze   - Analyze traces and generate quality reports
 
 Usage:
-    # Batch processing with tracing
-    python run_evaluation.py batch --provider openai --vertical financial_services -n 10
-
-    # Post-hoc evaluation on existing run
-    python run_evaluation.py evaluate --run-id <mlflow_run_id>
-
-    # List recent runs
-    python run_evaluation.py list-runs --experiment <experiment_name>
+    python run_scheduled_evaluation.py batch --provider openai --vertical financial_services -n 10
+    python run_scheduled_evaluation.py evaluate --run-id <mlflow_run_id>
+    python run_scheduled_evaluation.py list-runs --experiment <experiment_name>
+    python run_scheduled_evaluation.py analyze --run-id <id> --output report.json
 
 See: https://docs.dominodatalab.com/en/cloud/user_guide/fc1922/set-up-and-run-genai-traces/
 """
@@ -32,7 +37,17 @@ import yaml
 # Add project root to path
 sys.path.insert(0, "/mnt/code")
 
-# Import tracing modules
+# =============================================================================
+# TRACING SETUP: Import and Initialize Components
+# =============================================================================
+# Key imports for Domino GenAI tracing:
+# - add_tracing: Decorator to create traced spans with inputs/outputs
+# - init_tracing: Initialize the tracing system
+# - search_traces: Retrieve traces from completed runs for post-hoc evaluation
+# - DominoRun: Context manager for creating MLflow runs
+# - log_evaluation: Attach evaluation scores to specific traces
+# - mlflow: Provides autologging for LLM calls
+# =============================================================================
 try:
     from domino.agents.tracing import add_tracing, init_tracing, search_traces
     from domino.agents.logging import DominoRun, log_evaluation
@@ -87,8 +102,16 @@ def row_to_incident(row: pd.Series) -> Incident:
     )
 
 
+# =============================================================================
+# EVALUATOR FUNCTION: Extract Metrics from Traced Outputs
+# =============================================================================
+# The evaluator receives a span object with .outputs containing the function's
+# return value. Returns a dict of metric_name -> value pairs that are:
+# - Attached to each trace for filtering in the Trace Explorer
+# - Aggregated across traces when using custom_summary_metrics in DominoRun
+# =============================================================================
 def pipeline_evaluator(span) -> Dict[str, Any]:
-    """Extract metrics from the triage pipeline span for automatic evaluation."""
+    """Extract metrics from triage pipeline outputs for automatic evaluation."""
     try:
         output = span.outputs or {}
         judge_scores = output.get("judge_scores", {})
@@ -147,11 +170,23 @@ def pipeline_evaluator(span) -> Dict[str, Any]:
         return {"pipeline_success": 0, "combined_quality_score": 0.0}
 
 
+# =============================================================================
+# TRACED FUNCTION: Pipeline with @add_tracing Decorator
+# =============================================================================
+# The @add_tracing decorator:
+# - Creates a parent span capturing function inputs and outputs
+# - Nests all LLM calls (from autolog) under this parent span
+# - Runs the evaluator on completion to extract metrics
+# =============================================================================
 def create_traced_triage_function(client, provider: str, model: str, config: Dict[str, Any]):
     """Create a traced triage function for batch processing."""
     tracing_framework = "openai" if provider == "openai" else provider
 
-    @add_tracing(name="triage_incident", autolog_frameworks=[tracing_framework], evaluator=pipeline_evaluator)
+    @add_tracing(
+        name="triage_incident",           # Span name in trace explorer
+        autolog_frameworks=[tracing_framework],  # Capture LLM calls
+        evaluator=pipeline_evaluator      # Extract metrics from output
+    )
     def triage_incident(incident: Incident) -> Dict[str, Any]:
         """Run the full triage pipeline with judges."""
         classification = classify_incident(client, provider, model, incident, config)
@@ -225,23 +260,135 @@ def create_traced_triage_function(client, provider: str, model: str, config: Dic
     return triage_incident
 
 
+def generate_report(results: List[Dict[str, Any]], run_id: str, vertical: str,
+                    provider: str, model: str, experiment_name: str, run_name: str) -> Dict[str, Any]:
+    """Generate a structured report from triage results."""
+    successful = [r for r in results if r.get("success", False)]
+    failed = [r for r in results if not r.get("success", False)]
+
+    # Compute aggregate metrics
+    quality_scores = []
+    urgency_levels = []
+    impact_scores = []
+    sla_compliance = []
+    categories = {}
+
+    for r in successful:
+        judge_scores = r.get("judge_scores", {})
+        if judge_scores.get("combined_score"):
+            quality_scores.append(judge_scores["combined_score"])
+
+        classification = r.get("classification")
+        if hasattr(classification, "model_dump"):
+            classification = classification.model_dump()
+        if classification:
+            urgency_levels.append(classification.get("urgency", 0))
+            cat = classification.get("category", "unknown")
+            if hasattr(cat, "value"):
+                cat = cat.value
+            categories[cat] = categories.get(cat, 0) + 1
+
+        impact = r.get("impact")
+        if hasattr(impact, "model_dump"):
+            impact = impact.model_dump()
+        if impact:
+            impact_scores.append(impact.get("impact_score", 0))
+
+        assignment = r.get("assignment")
+        if hasattr(assignment, "model_dump"):
+            assignment = assignment.model_dump()
+        if assignment:
+            sla_compliance.append(1 if assignment.get("sla_met") else 0)
+
+    # Build ticket summaries
+    ticket_summaries = []
+    for r in successful:
+        classification = r.get("classification")
+        if hasattr(classification, "model_dump"):
+            classification = classification.model_dump()
+
+        impact = r.get("impact")
+        if hasattr(impact, "model_dump"):
+            impact = impact.model_dump()
+
+        assignment = r.get("assignment")
+        if hasattr(assignment, "model_dump"):
+            assignment = assignment.model_dump()
+
+        primary = assignment.get("primary_responder", {}) if assignment else {}
+        if hasattr(primary, "model_dump"):
+            primary = primary.model_dump()
+
+        category = classification.get("category", "unknown") if classification else "unknown"
+        if hasattr(category, "value"):
+            category = category.value
+
+        ticket_summaries.append({
+            "ticket_id": r["ticket_id"],
+            "category": category,
+            "urgency": classification.get("urgency", 0) if classification else 0,
+            "impact_score": impact.get("impact_score", 0) if impact else 0,
+            "responder": primary.get("name", "N/A") if isinstance(primary, dict) else "N/A",
+            "sla_met": assignment.get("sla_met", False) if assignment else False,
+            "quality_score": r.get("judge_scores", {}).get("combined_score", 0)
+        })
+
+    return {
+        "run_id": run_id,
+        "experiment_name": experiment_name,
+        "run_name": run_name,
+        "vertical": vertical,
+        "provider": provider,
+        "model": model,
+        "timestamp": datetime.now().isoformat(),
+        "summary": {
+            "total": len(results),
+            "successful": len(successful),
+            "failed": len(failed),
+            "avg_quality_score": sum(quality_scores) / len(quality_scores) if quality_scores else 0,
+            "avg_impact_score": sum(impact_scores) / len(impact_scores) if impact_scores else 0,
+            "sla_compliance_rate": sum(sla_compliance) / len(sla_compliance) if sla_compliance else 0,
+            "urgency_distribution": {level: urgency_levels.count(level) for level in range(1, 6)},
+            "category_distribution": categories
+        },
+        "tickets": ticket_summaries,
+        "failed_tickets": [{"ticket_id": r["ticket_id"], "error": r.get("error", "Unknown")} for r in failed]
+    }
+
+
+def save_report(report: Dict[str, Any], vertical: str, timestamp: str) -> str:
+    """Save report to JSON file and return the path."""
+    # Create reports directory
+    reports_dir = "/mnt/code/reports"
+    os.makedirs(reports_dir, exist_ok=True)
+
+    # Generate filename
+    filename = f"triage_report_{vertical}_{timestamp}.json"
+    report_path = os.path.join(reports_dir, filename)
+
+    with open(report_path, "w") as f:
+        json.dump(report, f, indent=2)
+
+    return report_path
+
+
+# =============================================================================
+# BATCH PROCESSING: Run Pipeline within DominoRun Context
+# =============================================================================
+# DominoRun creates an MLflow run that:
+# - Stores all traces from @add_tracing functions
+# - Aggregates metrics across traces using custom_summary_metrics
+# - Links configuration for reproducibility
+# - Captures run_id for post-hoc operations
+# =============================================================================
 def run_batch_processing(args):
     """Run batch triage processing with full tracing."""
     if not TRACING_AVAILABLE:
         print("ERROR: Domino tracing SDK is required for batch processing.")
         sys.exit(1)
 
-    print("=" * 80)
-    print("TriageFlow Batch Evaluation")
-    print("=" * 80)
-    print(f"Provider: {args.provider}")
-    print(f"Vertical: {args.vertical}")
-    print(f"Config: {args.config}")
-    print()
-
     config = load_config(args.config)
     model = config["models"][args.provider]
-    print(f"Model: {model}")
 
     # Initialize client
     client = initialize_client(args.provider)
@@ -256,7 +403,6 @@ def run_batch_processing(args):
     incidents = [row_to_incident(row) for _, row in df.iterrows()]
     if args.num_tickets > 0:
         incidents = incidents[:args.num_tickets]
-    print(f"Processing {len(incidents)} incidents")
 
     # Set up experiment naming
     username = os.environ.get("DOMINO_USER_NAME", os.environ.get("USER", "demo_user"))
@@ -264,10 +410,6 @@ def run_batch_processing(args):
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     experiment_name = args.experiment or f"tracing-{project_name}-{username}"
     run_name = f"{args.vertical}-{username}-{timestamp}"
-
-    print(f"\nExperiment: {experiment_name}")
-    print(f"Run: {run_name}")
-    print()
 
     # Aggregated metrics for DominoRun
     aggregated_metrics = [
@@ -299,9 +441,7 @@ def run_batch_processing(args):
         mlflow.set_tag("launched_from", "cli")
         run_id = run.info.run_id
 
-        for i, incident in enumerate(incidents, 1):
-            print(f"[{i}/{len(incidents)}] Processing {incident.ticket_id}...")
-
+        for incident in incidents:
             try:
                 result = triage_incident(incident)
                 results.append({
@@ -309,41 +449,35 @@ def run_batch_processing(args):
                     "success": True,
                     **result
                 })
-                cat = result["classification"].category.value
-                urg = result["classification"].urgency
-                imp = result["impact"].impact_score
-                print(f"    -> {cat} | Urgency: {urg} | Impact: {imp:.1f}")
             except Exception as e:
-                print(f"    -> ERROR: {e}")
                 results.append({
                     "ticket_id": incident.ticket_id,
                     "success": False,
                     "error": str(e)
                 })
 
-    print(f"\nProcessed {len(results)} incidents")
-    print(f"Run ID: {run_id}")
-
     # Add post-hoc evaluations
     if run_id:
         add_posthoc_evaluations(run_id, results)
 
-    # Print summary
-    print_results_summary(results)
+    # Generate and save report
+    report = generate_report(results, run_id, args.vertical, args.provider, model, experiment_name, run_name)
+    report_path = save_report(report, args.vertical, timestamp)
 
-    print("\n" + "=" * 80)
-    print("Done. View traces in Domino Experiment Manager.")
-    print(f"Run ID: {run_id}")
-    print("=" * 80)
-
-    return run_id
+    return run_id, report_path
 
 
+# =============================================================================
+# POST-HOC EVALUATION: Add Metrics to Completed Traces
+# =============================================================================
+# After a run completes, use search_traces() to retrieve traces and
+# log_evaluation() to attach additional metrics. This is useful for:
+# - Adding derived metrics computed after all traces complete
+# - Flagging traces that need human review
+# - Adding human feedback to production traces
+# =============================================================================
 def add_posthoc_evaluations(run_id: str, results: List[Dict[str, Any]]):
     """Add post-hoc evaluations to traces after pipeline completes."""
-    print("\n" + "-" * 40)
-    print("Adding post-hoc evaluations...")
-
     traces = search_traces(run_id=run_id)
 
     successful_results = [r for r in results if r.get("success", False)]
@@ -391,9 +525,16 @@ def add_posthoc_evaluations(run_id: str, results: List[Dict[str, Any]]):
         log_evaluation(trace_id=trace.id, name="needs_manual_review", value=1.0 if needs_review else 0.0)
         log_evaluation(trace_id=trace.id, name="quality_tier", value=quality_tier)
 
-    print(f"Added evaluations to {len(traces.data)} traces")
 
-
+# =============================================================================
+# CLI: Post-Hoc Evaluation Command
+# =============================================================================
+# This command demonstrates how to add evaluations to existing traces:
+# 1. Use search_traces(run_id=...) to retrieve traces from a completed run
+# 2. Extract existing evaluation values from each trace
+# 3. Compute derived metrics (e.g., quality tiers, review flags)
+# 4. Use log_evaluation() to attach new metrics to the trace
+# =============================================================================
 def run_posthoc_evaluation(args):
     """Add post-hoc evaluations to an existing run."""
     if not TRACING_AVAILABLE:
@@ -527,6 +668,15 @@ def list_runs(args):
         sys.exit(1)
 
 
+# =============================================================================
+# CLI: Trace Analysis Command
+# =============================================================================
+# This command demonstrates trace analysis patterns:
+# 1. Use search_traces() to retrieve all traces from a run
+# 2. Access trace.evaluations to read attached metrics
+# 3. Aggregate metrics across traces for quality reporting
+# 4. Export analysis to JSON for external tools
+# =============================================================================
 def analyze_traces(args):
     """Analyze traces from a run and generate a report."""
     if not TRACING_AVAILABLE:
@@ -618,54 +768,6 @@ def analyze_traces(args):
         print(f"\nMetrics exported to: {args.output}")
 
 
-def print_results_summary(results: List[Dict[str, Any]]):
-    """Print a summary table of results."""
-    print("\n" + "=" * 80)
-    print("RESULTS SUMMARY")
-    print("=" * 80)
-
-    successful = [r for r in results if r.get("success", False)]
-    failed = [r for r in results if not r.get("success", False)]
-
-    print(f"Total: {len(results)} | Success: {len(successful)} | Failed: {len(failed)}")
-    print()
-
-    if successful:
-        summary_data = []
-        for r in successful:
-            classification = r.get("classification")
-            if hasattr(classification, "model_dump"):
-                classification = classification.model_dump()
-
-            impact = r.get("impact")
-            if hasattr(impact, "model_dump"):
-                impact = impact.model_dump()
-
-            resources = r.get("assignment")
-            if hasattr(resources, "model_dump"):
-                resources = resources.model_dump()
-
-            primary = resources.get("primary_responder", {}) if resources else {}
-            if hasattr(primary, "model_dump"):
-                primary = primary.model_dump()
-
-            category = classification.get("category", "unknown") if classification else "unknown"
-            if hasattr(category, "value"):
-                category = category.value
-
-            summary_data.append({
-                "Ticket": r["ticket_id"],
-                "Category": category,
-                "Urgency": classification.get("urgency", 0) if classification else 0,
-                "Impact": impact.get("impact_score", 0) if impact else 0,
-                "Responder": primary.get("name", "N/A") if isinstance(primary, dict) else "N/A",
-                "SLA": "Yes" if resources and resources.get("sla_met") else "No"
-            })
-
-        df = pd.DataFrame(summary_data)
-        print(df.to_string(index=False))
-
-
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -674,16 +776,16 @@ def main():
         epilog="""
 Examples:
   # Run batch processing
-  python run_evaluation.py batch --provider openai --vertical financial_services -n 5
+  python run_scheduled_evaluation.py batch --provider openai --vertical financial_services -n 5
 
   # Add evaluations to existing run
-  python run_evaluation.py evaluate --run-id abc123
+  python run_scheduled_evaluation.py evaluate --run-id abc123
 
   # List recent runs
-  python run_evaluation.py list-runs
+  python run_scheduled_evaluation.py list-runs
 
   # Analyze traces from a run
-  python run_evaluation.py analyze --run-id abc123 --output report.json
+  python run_scheduled_evaluation.py analyze --run-id abc123 --output report.json
         """
     )
 
@@ -715,7 +817,8 @@ Examples:
     args = parser.parse_args()
 
     if args.command == "batch":
-        run_batch_processing(args)
+        run_id, report_path = run_batch_processing(args)
+        print(f"Report saved: {report_path}")
     elif args.command == "evaluate":
         run_posthoc_evaluation(args)
     elif args.command == "list-runs":
