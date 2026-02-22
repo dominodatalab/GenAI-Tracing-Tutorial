@@ -1009,9 +1009,6 @@ def main():
     if st.session_state.demo_result:
         st.divider()
 
-        if st.session_state.demo_result.get("tracing_enabled"):
-            st.info("Tracing was enabled for this run. View detailed traces in the Domino Experiment Manager.")
-
         render_agent_results(
             st.session_state.demo_result["results"],
             st.session_state.demo_result["incident"]
