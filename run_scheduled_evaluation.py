@@ -11,8 +11,8 @@ Analyzes traces from a deployed agent and generates a report.
 # Replace with your deployed agent's ID and version.
 # Find these in Domino: Deployments > Agents > Your Agent
 #
-AGENT_ID = "<REPLACE_WITH_YOUR_AGENT_ID>"
-VERSION = "<REPLACE_WITH_YOUR_VERSION>"
+AGENT_ID = "699a65839c06191024866666"
+VERSION = "699a65849c06191024866668"
 #
 # Example:
 #   AGENT_ID = "699a65839c06191024866666"
